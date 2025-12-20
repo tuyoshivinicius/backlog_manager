@@ -1,0 +1,1 @@
+"""Interfaces de serviços externos."""

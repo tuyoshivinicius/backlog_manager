@@ -1,0 +1,14 @@
+[run]
+source = backlog_manager
+omit =
+    */tests/*
+    */venv/*
+    */__init__.py
+
+[report]
+precision = 2
+show_missing = True
+skip_covered = False
+
+[html]
+directory = htmlcov

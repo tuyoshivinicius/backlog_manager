@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(test:*)",
+      "Bash(python -m py_compile:*)",
+      "Bash(python:*)",
+      "Bash(..venvScriptspython.exe test_ui_flow.py)",
+      "Bash(timeout /t 3)",
+      "Bash(\"..\\\\venv\\\\Scripts\\\\python.exe\" main.py)"
+    ]
+  }
+}
