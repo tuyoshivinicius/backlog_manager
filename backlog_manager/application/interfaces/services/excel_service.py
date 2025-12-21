@@ -1,6 +1,6 @@
 """Interface do serviço de Excel."""
 from abc import ABC, abstractmethod
-from typing import List
+from typing import List, Tuple, Set, Optional
 
 from backlog_manager.application.dto.story_dto import StoryDTO
 
@@ -14,19 +14,35 @@ class ExcelService(ABC):
     """
 
     @abstractmethod
-    def import_stories(self, filepath: str) -> List[StoryDTO]:
+    def import_stories(
+        self,
+        filepath: str,
+        existing_ids: Optional[Set[str]] = None
+    ) -> Tuple[List[StoryDTO], dict]:
         """
         Importa histórias de arquivo Excel.
 
         Args:
             filepath: Caminho do arquivo Excel
+            existing_ids: IDs de histórias já existentes no banco (para validação)
 
         Returns:
-            Lista de StoryDTO importados
+            Tupla contendo:
+            - Lista de StoryDTO importados (válidos)
+            - Dicionário com estatísticas da importação:
+                {
+                    "total_processadas": int,       # Total de linhas processadas
+                    "total_importadas": int,        # Histórias válidas importadas
+                    "ignoradas_duplicadas": int,    # IDs duplicados na planilha
+                    "ignoradas_existentes": int,    # IDs já existem no banco
+                    "ignoradas_invalidas": int,     # Dados inválidos
+                    "deps_ignoradas": int,          # Dependências inválidas removidas
+                    "warnings": List[str]           # Lista de avisos/erros
+                }
 
         Raises:
             FileNotFoundError: Se arquivo não existe
-            ValueError: Se formato inválido
+            ValueError: Se formato inválido (cabeçalho incorreto)
         """
         pass
 

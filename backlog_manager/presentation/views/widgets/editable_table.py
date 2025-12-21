@@ -27,6 +27,52 @@ class EditableTableWidget(QTableWidget):
     edit_story_requested = Signal(str)  # story_id
     duplicate_story_requested = Signal(str)  # story_id
     delete_story_requested = Signal(str)  # story_id
+    manage_dependencies_requested = Signal(str)  # story_id
+
+    # Stylesheets
+    _STYLE_NORMAL = """
+        QTableWidget::item:selected {
+            background-color: palette(highlight);
+            color: palette(highlighted-text);
+            padding: 0px;
+        }
+
+        QTableWidget::item {
+            padding: 0px;
+            font-size: 11pt;
+        }
+
+        QTableWidget::branch {
+            background: transparent;
+            width: 0px;
+        }
+
+        QTableWidget {
+            gridline-color: #d0d0d0;
+        }
+    """
+
+    _STYLE_PRIORITY_CHANGE = """
+        QTableWidget::item:selected {
+            background-color: #FF5555;
+            color: white;
+            padding: 0px;
+        }
+
+        QTableWidget::item {
+            padding: 0px;
+            font-size: 11pt;
+        }
+
+        QTableWidget::branch {
+            background: transparent;
+            width: 0px;
+        }
+
+        QTableWidget {
+            gridline-color: #d0d0d0;
+        }
+    """
 
     # Índices das colunas
     COL_PRIORITY = 0
@@ -55,6 +101,8 @@ class EditableTableWidget(QTableWidget):
         """Inicializa a tabela."""
         super().__init__()
         self._stories: List[StoryDTO] = []
+        self._ctrl_feedback_active = False  # Flag para feedback de Ctrl
+        self._priority_change_feedback_active = False  # Flag para feedback de mudança de prioridade
         self._setup_table()
 
     def _setup_table(self) -> None:
@@ -69,6 +117,9 @@ class EditableTableWidget(QTableWidget):
             | QAbstractItemView.EditTrigger.EditKeyPressed
         )
         self.setSortingEnabled(False)
+
+        # Aumentar altura das linhas para melhorar espaço de edição
+        self.verticalHeader().setDefaultSectionSize(32)
 
         # Cabeçalhos
         headers = [
@@ -111,6 +162,9 @@ class EditableTableWidget(QTableWidget):
         # Menu de contexto
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
+
+        # Aplicar stylesheet padrão (remove padding-left indesejado)
+        self.setStyleSheet(self._STYLE_NORMAL)
 
     def populate_from_stories(self, stories: List[StoryDTO]) -> None:
         """
@@ -286,7 +340,12 @@ class EditableTableWidget(QTableWidget):
 
         menu.addSeparator()
 
-        # TODO: Adicionar mais ações (mover prioridade, dependências, etc.)
+        # Ações de dependências
+        manage_deps_action = QAction("Gerenciar Dependências...", self)
+        manage_deps_action.triggered.connect(
+            lambda: self.manage_dependencies_requested.emit(story_id)
+        )
+        menu.addAction(manage_deps_action)
 
         # Exibir menu na posição do cursor
         menu.exec(self.mapToGlobal(position))
@@ -305,6 +364,73 @@ class EditableTableWidget(QTableWidget):
         row = selected_items[0].row()
         id_item = self.item(row, self.COL_ID)
         return id_item.text() if id_item else None
+
+    def select_story_by_id(self, story_id: str) -> bool:
+        """
+        Seleciona a linha da tabela que contém a história especificada.
+
+        Args:
+            story_id: ID da história a selecionar
+
+        Returns:
+            True se encontrou e selecionou, False caso contrário
+        """
+        for row in range(self.rowCount()):
+            id_item = self.item(row, self.COL_ID)
+            if id_item and id_item.text() == story_id:
+                # Limpar seleção atual
+                self.clearSelection()
+                # Selecionar a linha
+                self.selectRow(row)
+                # Scroll para garantir visibilidade
+                self.scrollToItem(id_item, QAbstractItemView.ScrollHint.PositionAtCenter)
+                return True
+        return False
+
+    def apply_priority_change_feedback(self, active: bool, source: str = "priority") -> None:
+        """
+        Aplica ou remove feedback visual.
+
+        Args:
+            active: True para ativar feedback (vermelho), False para remover
+            source: "priority" ou "ctrl" - fonte do feedback
+        """
+        if source == "priority":
+            self._priority_change_feedback_active = active
+        elif source == "ctrl":
+            self._ctrl_feedback_active = active
+
+        # Aplicar vermelho se QUALQUER feedback está ativo
+        should_be_red = self._priority_change_feedback_active or self._ctrl_feedback_active
+        self.setStyleSheet(self._STYLE_PRIORITY_CHANGE if should_be_red else self._STYLE_NORMAL)
+
+    def keyPressEvent(self, event) -> None:
+        """
+        Captura eventos de tecla pressionada.
+
+        Args:
+            event: Evento de tecla
+        """
+        # Detectar Ctrl pressionado
+        if event.key() == Qt.Key.Key_Control:
+            self.apply_priority_change_feedback(True, source="ctrl")
+
+        # Chamar implementação padrão
+        super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event) -> None:
+        """
+        Captura eventos de tecla solta.
+
+        Args:
+            event: Evento de tecla
+        """
+        # Detectar Ctrl solto
+        if event.key() == Qt.Key.Key_Control:
+            self.apply_priority_change_feedback(False, source="ctrl")
+
+        # Chamar implementação padrão
+        super().keyReleaseEvent(event)
 
     def refresh(self) -> None:
         """Atualiza a tabela (força repaint)."""

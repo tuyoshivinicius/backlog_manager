@@ -1,4 +1,6 @@
 """Testes unitários para entidade Configuration."""
+from datetime import date
+
 import pytest
 
 from backlog_manager.domain.entities.configuration import Configuration
@@ -48,3 +50,38 @@ class TestConfiguration:
         config = Configuration(story_points_per_sprint=30, workdays_per_sprint=10)
 
         assert config.velocity_per_day == pytest.approx(3.0, rel=0.01)
+
+    def test_create_configuration_with_roadmap_start_date(self) -> None:
+        """Deve criar configuração com data de início do roadmap."""
+        start_date = date(2025, 1, 6)  # Segunda-feira
+        config = Configuration(
+            story_points_per_sprint=21, workdays_per_sprint=15, roadmap_start_date=start_date
+        )
+
+        assert config.roadmap_start_date == start_date
+
+    def test_create_configuration_without_roadmap_start_date(self) -> None:
+        """Deve criar configuração sem data de início (None)."""
+        config = Configuration(story_points_per_sprint=21, workdays_per_sprint=15, roadmap_start_date=None)
+
+        assert config.roadmap_start_date is None
+
+    def test_reject_weekend_roadmap_start_date(self) -> None:
+        """Deve rejeitar data de início em fim de semana."""
+        saturday = date(2025, 1, 4)  # Sábado
+        with pytest.raises(ValueError, match="dia útil"):
+            Configuration(story_points_per_sprint=21, workdays_per_sprint=15, roadmap_start_date=saturday)
+
+        sunday = date(2025, 1, 5)  # Domingo
+        with pytest.raises(ValueError, match="dia útil"):
+            Configuration(story_points_per_sprint=21, workdays_per_sprint=15, roadmap_start_date=sunday)
+
+    def test_accept_weekday_roadmap_start_date(self) -> None:
+        """Deve aceitar data de início em dias úteis."""
+        monday = date(2025, 1, 6)  # Segunda-feira
+        config_mon = Configuration(story_points_per_sprint=21, workdays_per_sprint=15, roadmap_start_date=monday)
+        assert config_mon.roadmap_start_date == monday
+
+        friday = date(2025, 1, 10)  # Sexta-feira
+        config_fri = Configuration(story_points_per_sprint=21, workdays_per_sprint=15, roadmap_start_date=friday)
+        assert config_fri.roadmap_start_date == friday

@@ -6,6 +6,9 @@ Centraliza a criação e configuração de todos os componentes da aplicação.
 from backlog_manager.domain.services.cycle_detector import CycleDetector
 from backlog_manager.domain.services.backlog_sorter import BacklogSorter
 from backlog_manager.domain.services.schedule_calculator import ScheduleCalculator
+from backlog_manager.domain.services.allocation_validator import AllocationValidator
+from backlog_manager.domain.services.developer_load_balancer import DeveloperLoadBalancer
+from backlog_manager.domain.services.idleness_detector import IdlenessDetector
 
 from backlog_manager.infrastructure.database.sqlite_connection import SQLiteConnection
 from backlog_manager.infrastructure.database.repositories.sqlite_story_repository import (
@@ -31,6 +34,9 @@ from backlog_manager.application.use_cases.story.duplicate_story import (
 )
 from backlog_manager.application.use_cases.story.change_priority import (
     ChangePriorityUseCase,
+)
+from backlog_manager.application.use_cases.story.validate_developer_allocation import (
+    ValidateDeveloperAllocationUseCase,
 )
 
 from backlog_manager.application.use_cases.developer.create_developer import (
@@ -115,6 +121,9 @@ class DIContainer:
         self.cycle_detector = CycleDetector()
         self.backlog_sorter = BacklogSorter()
         self.schedule_calculator = ScheduleCalculator()
+        self.allocation_validator = AllocationValidator()
+        self.developer_load_balancer = DeveloperLoadBalancer()
+        self.idleness_detector = IdlenessDetector()
 
     def _create_repositories(self) -> None:
         """Cria repositories."""
@@ -139,6 +148,9 @@ class DIContainer:
         )
         self.change_priority_use_case = ChangePriorityUseCase(
             self.story_repository
+        )
+        self.validate_allocation_use_case = ValidateDeveloperAllocationUseCase(
+            self.story_repository, self.allocation_validator
         )
 
         # Developer Use Cases
@@ -174,7 +186,12 @@ class DIContainer:
             self.schedule_calculator,
         )
         self.allocate_developers_use_case = AllocateDevelopersUseCase(
-            self.story_repository, self.developer_repository
+            self.story_repository,
+            self.developer_repository,
+            self.configuration_repository,
+            self.developer_load_balancer,
+            self.idleness_detector,
+            self.schedule_calculator
         )
 
         # Configuration Use Cases
@@ -187,7 +204,9 @@ class DIContainer:
 
         # Excel Use Cases
         self.import_from_excel_use_case = ImportFromExcelUseCase(
-            self.excel_service, self.story_repository
+            self.story_repository,
+            self.excel_service,
+            self.cycle_detector  # NOVO: passar CycleDetector
         )
         self.export_to_excel_use_case = ExportToExcelUseCase(
             self.excel_service, self.story_repository
@@ -205,6 +224,7 @@ class DIContainer:
             self.duplicate_story_use_case,
             self.change_priority_use_case,
             self.calculate_schedule_use_case,
+            self.validate_allocation_use_case,
         )
 
         # Developer Controller
@@ -231,6 +251,8 @@ class DIContainer:
             self.export_to_excel_use_case,
             self.get_configuration_use_case,
             self.update_configuration_use_case,
+            self.validate_allocation_use_case,
+            self.story_repository,
         )
 
     def get_main_controller(self) -> MainController:

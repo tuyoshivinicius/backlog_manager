@@ -8,7 +8,15 @@
       "Bash(python:*)",
       "Bash(..venvScriptspython.exe test_ui_flow.py)",
       "Bash(timeout /t 3)",
-      "Bash(\"..\\\\venv\\\\Scripts\\\\python.exe\" main.py)"
+      "Bash(\"..\\\\venv\\\\Scripts\\\\python.exe\" main.py)",
+      "Bash(\".\\\\venv\\\\Scripts\\\\python.exe\" main.py)",
+      "Bash(venv/Scripts/python.exe main.py)",
+      "Bash(cd:*)",
+      "Bash(venv\\\\Scripts\\\\python.exe:*)",
+      "Bash(ping:*)",
+      "Bash(dir:*)",
+      "Bash(venv\\\\Scripts\\\\python.exe -m pytest:*)",
+      "Bash(.\\\\venv\\\\Scripts\\\\python.exe -m pytest:*)"
     ]
   }
 }

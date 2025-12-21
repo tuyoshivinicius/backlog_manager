@@ -3,17 +3,21 @@ Diálogo de configurações do sistema.
 
 Permite configurar velocidade do time (SP por sprint e dias úteis).
 """
+from datetime import date, timedelta
 from typing import Optional
+
+from PySide6.QtCore import QDate, Signal
 from PySide6.QtWidgets import (
+    QDateEdit,
     QDialog,
     QFormLayout,
-    QSpinBox,
-    QPushButton,
     QHBoxLayout,
-    QVBoxLayout,
     QLabel,
+    QMessageBox,
+    QPushButton,
+    QSpinBox,
+    QVBoxLayout,
 )
-from PySide6.QtCore import Signal
 
 from backlog_manager.application.dto.configuration_dto import ConfigurationDTO
 
@@ -75,6 +79,23 @@ class ConfigurationDialog(QDialog):
         self._workdays_per_sprint_spin.setSuffix(" dias")
         form_layout.addRow("Dias Úteis por Sprint:", self._workdays_per_sprint_spin)
 
+        # Data de Início do Roadmap
+        date_layout = QHBoxLayout()
+        self._roadmap_start_date_edit = QDateEdit()
+        self._roadmap_start_date_edit.setCalendarPopup(True)
+        self._roadmap_start_date_edit.setDisplayFormat("dd/MM/yyyy")
+        self._roadmap_start_date_edit.setMinimumDate(QDate.currentDate())
+        self._roadmap_start_date_edit.setDate(QDate.currentDate())
+        self._roadmap_start_date_edit.dateChanged.connect(self._validate_workday)
+        date_layout.addWidget(self._roadmap_start_date_edit)
+
+        self._use_current_date_btn = QPushButton("Usar Data Atual")
+        self._use_current_date_btn.setProperty("secondary", True)
+        self._use_current_date_btn.clicked.connect(self._set_current_date)
+        date_layout.addWidget(self._use_current_date_btn)
+
+        form_layout.addRow("Data de Início do Roadmap:", date_layout)
+
         # Velocidade calculada
         self._velocity_label = QLabel()
         self._velocity_label.setStyleSheet("font-weight: bold;")
@@ -92,6 +113,18 @@ class ConfigurationDialog(QDialog):
         help_label.setWordWrap(True)
         help_label.setStyleSheet("color: #757575; font-size: 9pt; margin-top: 8px;")
         main_layout.addWidget(help_label)
+
+        # Aviso sobre dias úteis
+        warning_label = QLabel(
+            "⚠️ A data de início deve ser um dia útil (segunda a sexta). "
+            "Se selecionar fim de semana, será ajustada automaticamente."
+        )
+        warning_label.setWordWrap(True)
+        warning_label.setStyleSheet(
+            "color: #FF8C00; padding: 10px; background-color: #FFF8DC; "
+            "border-radius: 5px; margin-top: 8px;"
+        )
+        main_layout.addWidget(warning_label)
 
         main_layout.addStretch()
 
@@ -135,6 +168,17 @@ class ConfigurationDialog(QDialog):
         self._sp_per_sprint_spin.setValue(configuration.story_points_per_sprint)
         self._workdays_per_sprint_spin.setValue(configuration.workdays_per_sprint)
 
+        # Carregar data de início do roadmap se existir
+        if hasattr(configuration, "roadmap_start_date") and configuration.roadmap_start_date:
+            # ConfigurationDTO pode ter roadmap_start_date como string ISO ou date
+            if isinstance(configuration.roadmap_start_date, str):
+                start_date = date.fromisoformat(configuration.roadmap_start_date)
+            else:
+                start_date = configuration.roadmap_start_date
+
+            qdate = QDate(start_date.year, start_date.month, start_date.day)
+            self._roadmap_start_date_edit.setDate(qdate)
+
     def _update_velocity_label(self) -> None:
         """Atualiza label de velocidade calculada."""
         sp = self._sp_per_sprint_spin.value()
@@ -146,17 +190,64 @@ class ConfigurationDialog(QDialog):
         else:
             self._velocity_label.setText("N/A")
 
+    def _validate_workday(self, qdate: QDate) -> None:
+        """
+        Valida se a data selecionada é um dia útil.
+        Se for fim de semana, ajusta para próxima segunda-feira.
+
+        Args:
+            qdate: Data selecionada no QDateEdit
+        """
+        python_date = date(qdate.year(), qdate.month(), qdate.day())
+
+        # Se for fim de semana (sábado=5, domingo=6), ajustar
+        if python_date.weekday() >= 5:
+            # Calcular próxima segunda-feira
+            days_until_monday = 7 - python_date.weekday()
+            next_monday = python_date + timedelta(days=days_until_monday)
+
+            # Atualizar QDateEdit
+            self._roadmap_start_date_edit.setDate(QDate(next_monday.year, next_monday.month, next_monday.day))
+
+            QMessageBox.information(
+                self,
+                "Dia Útil Requerido",
+                f"Fim de semana não é permitido. Data ajustada para {next_monday.strftime('%d/%m/%Y')} (segunda-feira).",
+            )
+
+    def _set_current_date(self) -> None:
+        """Define data de início como data atual (ou próxima segunda se hoje for fim de semana)."""
+        current_date = date.today()
+
+        # Se hoje for fim de semana, ajustar para próxima segunda
+        if current_date.weekday() >= 5:
+            days_until_monday = 7 - current_date.weekday()
+            current_date = current_date + timedelta(days=days_until_monday)
+
+        self._roadmap_start_date_edit.setDate(QDate(current_date.year, current_date.month, current_date.day))
+
     def _restore_defaults(self) -> None:
         """Restaura valores padrão."""
         self._sp_per_sprint_spin.setValue(self.DEFAULT_SP_PER_SPRINT)
         self._workdays_per_sprint_spin.setValue(self.DEFAULT_WORKDAYS_PER_SPRINT)
+        self._set_current_date()
 
     def _on_save(self) -> None:
         """Callback de salvamento."""
+        # Converter QDate para date
+        qdate = self._roadmap_start_date_edit.date()
+        python_date = date(qdate.year(), qdate.month(), qdate.day())
+
+        # Última validação de dia útil
+        if python_date.weekday() >= 5:
+            QMessageBox.warning(self, "Data Inválida", "A data de início deve ser um dia útil (segunda a sexta).")
+            return
+
         # Coletar dados
         config_data = {
             "story_points_per_sprint": self._sp_per_sprint_spin.value(),
             "workdays_per_sprint": self._workdays_per_sprint_spin.value(),
+            "roadmap_start_date": python_date,
         }
 
         # Emitir sinal

@@ -20,15 +20,23 @@ from backlog_manager.application.use_cases.story.change_priority import (
 from backlog_manager.application.use_cases.schedule.calculate_schedule import (
     CalculateScheduleUseCase,
 )
+from backlog_manager.application.use_cases.story.change_priority import Direction
+from backlog_manager.application.use_cases.story.validate_developer_allocation import (
+    ValidateDeveloperAllocationUseCase,
+)
 from backlog_manager.application.dto.story_dto import StoryDTO
+from backlog_manager.domain.services.allocation_validator import AllocationConflict
 from backlog_manager.presentation.utils.message_box import MessageBox
+from backlog_manager.presentation.utils.cell_highlighter import CellHighlighter
 
 
 class StoryController:
     """Controlador de histórias."""
 
     # Campos que requerem recálculo de cronograma
-    FIELDS_REQUIRING_RECALC = ["story_point", "developer_id", "dependencies"]
+    # Nota: developer_id NÃO está aqui porque mudar o desenvolvedor de uma história
+    # não deve recalcular todo o cronograma (que limpa todos os desenvolvedores)
+    FIELDS_REQUIRING_RECALC = ["story_point", "dependencies"]
 
     def __init__(
         self,
@@ -40,6 +48,7 @@ class StoryController:
         duplicate_story_use_case: DuplicateStoryUseCase,
         change_priority_use_case: ChangePriorityUseCase,
         calculate_schedule_use_case: CalculateScheduleUseCase,
+        validate_allocation_use_case: ValidateDeveloperAllocationUseCase,
     ):
         """
         Inicializa o controlador.
@@ -53,6 +62,7 @@ class StoryController:
             duplicate_story_use_case: Use case de duplicação
             change_priority_use_case: Use case de mudança de prioridade
             calculate_schedule_use_case: Use case de cálculo de cronograma
+            validate_allocation_use_case: Use case de validação de alocação
         """
         self._create_use_case = create_story_use_case
         self._update_use_case = update_story_use_case
@@ -62,8 +72,10 @@ class StoryController:
         self._duplicate_use_case = duplicate_story_use_case
         self._change_priority_use_case = change_priority_use_case
         self._calculate_schedule_use_case = calculate_schedule_use_case
+        self._validate_allocation_use_case = validate_allocation_use_case
 
         self._parent_widget: Optional[QWidget] = None
+        self._table_widget = None
         self._refresh_callback: Optional[callable] = None
         self._show_loading_callback: Optional[callable] = None
         self._hide_loading_callback: Optional[callable] = None
@@ -76,6 +88,15 @@ class StoryController:
             widget: Widget pai
         """
         self._parent_widget = widget
+
+    def set_table_widget(self, table_widget) -> None:
+        """
+        Define referência à tabela para feedback visual.
+
+        Args:
+            table_widget: Widget da tabela
+        """
+        self._table_widget = table_widget
 
     def set_refresh_callback(self, callback: callable) -> None:
         """
@@ -194,12 +215,40 @@ class StoryController:
             value: Novo valor
         """
         try:
+            # Converter dependências de string para lista
+            if field == "dependencies":
+                if isinstance(value, str):
+                    # Converter "S1, S2, S3" para ["S1", "S2", "S3"]
+                    value = [dep.strip() for dep in value.split(",") if dep.strip()]
+                elif value is None:
+                    value = []
+
+            # TRATAMENTO ESPECIAL: developer_id
+            if field == "developer_id":
+                # Converter "(Nenhum)" para None (banco espera NULL)
+                if value == "(Nenhum)" or not value:
+                    value = None
+
+                # Validar conflito de alocação apenas se estiver alocando um desenvolvedor
+                if value is not None:
+                    is_valid, conflicts = self._validate_allocation_use_case.execute(
+                        story_id, value
+                    )
+
+                    if not is_valid:
+                        # Conflito detectado! Cancelar operação e mostrar feedback
+                        self._handle_allocation_conflict(story_id, conflicts)
+                        return  # NÃO salva
+
             # Atualizar história
             self._update_use_case.execute(story_id, {field: value})
 
             # Verificar se requer recálculo
             if field in self.FIELDS_REQUIRING_RECALC:
                 self._recalculate_schedule()
+            else:
+                # Se não requer recálculo, apenas atualizar view
+                self._refresh_view()
 
         except Exception as e:
             MessageBox.error(
@@ -216,7 +265,7 @@ class StoryController:
             story_id: ID da história
         """
         try:
-            self._change_priority_use_case.execute(story_id, direction="up")
+            self._change_priority_use_case.execute(story_id, direction=Direction.UP)
             self._refresh_view()
         except Exception as e:
             MessageBox.error(
@@ -231,7 +280,7 @@ class StoryController:
             story_id: ID da história
         """
         try:
-            self._change_priority_use_case.execute(story_id, direction="down")
+            self._change_priority_use_case.execute(story_id, direction=Direction.DOWN)
             self._refresh_view()
         except Exception as e:
             MessageBox.error(
@@ -294,3 +343,77 @@ class StoryController:
         """Atualiza a view."""
         if self._refresh_callback:
             self._refresh_callback()
+
+    def _handle_allocation_conflict(
+        self,
+        story_id: str,
+        conflicts: List[AllocationConflict]
+    ) -> None:
+        """
+        Trata conflito de alocação com feedback visual.
+
+        Args:
+            story_id: ID da história sendo editada
+            conflicts: Lista de conflitos detectados
+        """
+        if not self._table_widget:
+            MessageBox.warning(
+                self._parent_widget,
+                "Conflito de Alocação",
+                "Desenvolvedor já está alocado em histórias com períodos sobrepostos."
+            )
+            self._refresh_view()
+            return
+
+        # Encontrar linhas conflitantes
+        from backlog_manager.presentation.views.widgets.editable_table import EditableTableWidget
+        table = self._table_widget
+        conflicting_rows = []
+        current_row = None
+
+        for row in range(table.rowCount()):
+            id_item = table.item(row, EditableTableWidget.COL_ID)
+            if not id_item:
+                continue
+
+            row_story_id = id_item.text()
+
+            if row_story_id == story_id:
+                current_row = row
+
+            for conflict in conflicts:
+                if row_story_id == conflict.story_id:
+                    conflicting_rows.append(row)
+
+        # Reverter célula para valor correto ANTES de mostrar feedback
+        # (evita loops de eventos)
+        if current_row is not None:
+            # Buscar valor correto do banco de dados
+            story = self._get_use_case.execute(story_id)
+            if story:
+                # Atualizar apenas a célula específica
+                developer_item = table.item(current_row, EditableTableWidget.COL_DEVELOPER)
+                if developer_item:
+                    # Se tinha desenvolvedor, mostra o ID, senão mostra "(Nenhum)"
+                    correct_value = story.developer_id if story.developer_id else "(Nenhum)"
+                    developer_item.setText(correct_value)
+
+        # Destacar células em vermelho
+        all_rows = ([current_row] + conflicting_rows) if current_row is not None else conflicting_rows
+
+        if all_rows:
+            CellHighlighter.flash_error(
+                table=table,
+                rows=all_rows,
+                column=EditableTableWidget.COL_DEVELOPER,
+                duration_ms=2000
+            )
+
+        # Mostrar mensagem de erro
+        conflict_ids = [c.story_id for c in conflicts]
+        MessageBox.warning(
+            self._parent_widget,
+            "Conflito de Alocação",
+            f"Desenvolvedor já está alocado em: {', '.join(conflict_ids)}\n"
+            f"Períodos de execução se sobrepõem."
+        )

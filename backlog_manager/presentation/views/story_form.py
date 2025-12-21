@@ -34,6 +34,7 @@ class StoryFormDialog(QDialog):
         parent=None,
         story: Optional[StoryDTO] = None,
         developers: Optional[List[DeveloperDTO]] = None,
+        all_stories: Optional[List[StoryDTO]] = None,
     ):
         """
         Inicializa o formulário.
@@ -42,10 +43,13 @@ class StoryFormDialog(QDialog):
             parent: Widget pai
             story: História a editar (None para criar nova)
             developers: Lista de desenvolvedores disponíveis
+            all_stories: Lista de todas as histórias (para dependências)
         """
         super().__init__(parent)
         self._story = story
         self._developers = developers or []
+        self._all_stories = all_stories or []
+        self._selected_dependencies = []
         self._is_edit_mode = story is not None
 
         self._setup_ui()
@@ -107,6 +111,21 @@ class StoryFormDialog(QDialog):
         self._priority_spin.setRange(1, 1000)
         self._priority_spin.setValue(1)
         form_layout.addRow("Prioridade:", self._priority_spin)
+
+        # Dependências
+        deps_layout = QHBoxLayout()
+        self._dependencies_display = QLabel("Nenhuma")
+        self._dependencies_display.setStyleSheet(
+            "border: 1px solid #ccc; padding: 5px; background: white; min-height: 24px;"
+        )
+        self._dependencies_display.setWordWrap(True)
+        deps_layout.addWidget(self._dependencies_display, 1)
+
+        select_deps_button = QPushButton("Selecionar...")
+        select_deps_button.clicked.connect(self._on_select_dependencies)
+        deps_layout.addWidget(select_deps_button)
+
+        form_layout.addRow("Dependências:", deps_layout)
 
         main_layout.addLayout(form_layout)
 
@@ -205,6 +224,47 @@ class StoryFormDialog(QDialog):
         # Prioridade
         self._priority_spin.setValue(story.priority)
 
+        # Dependências
+        self._selected_dependencies = list(story.dependencies)
+        self._update_dependencies_display()
+
+    def _on_select_dependencies(self) -> None:
+        """Abre dialog para selecionar dependências."""
+        from backlog_manager.presentation.views.dependencies_dialog import (
+            DependenciesDialog,
+        )
+
+        # Criar DTO temporário para a história atual (necessário para o dialog)
+        current_story = self._story if self._story else StoryDTO(
+            id="TEMP",
+            feature=self._feature_input.text().strip(),
+            name=self._name_input.text().strip(),
+            story_point=int(self._story_point_combo.currentText()),
+            status=self._status_combo.currentText(),
+            priority=self._priority_spin.value(),
+            developer_id=self._developer_combo.currentData(),
+            dependencies=self._selected_dependencies.copy(),
+        )
+
+        dialog = DependenciesDialog(
+            self,
+            current_story,
+            self._all_stories,
+            self._selected_dependencies,
+        )
+
+        if dialog.exec():
+            self._selected_dependencies = dialog.get_dependencies()
+            self._update_dependencies_display()
+
+    def _update_dependencies_display(self) -> None:
+        """Atualiza o display de dependências."""
+        if self._selected_dependencies:
+            deps_text = ", ".join(self._selected_dependencies)
+            self._dependencies_display.setText(deps_text)
+        else:
+            self._dependencies_display.setText("Nenhuma")
+
     def _validate(self) -> None:
         """Valida campos do formulário."""
         feature = self._feature_input.text().strip()
@@ -242,6 +302,7 @@ class StoryFormDialog(QDialog):
             "status": self._status_combo.currentText(),
             "developer_id": self._developer_combo.currentData(),
             "priority": self._priority_spin.value(),
+            "dependencies": self._selected_dependencies,
         }
         print(f"[OK] Dados coletados: {form_data}")
 

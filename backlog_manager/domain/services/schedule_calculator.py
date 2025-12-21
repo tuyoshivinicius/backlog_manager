@@ -37,24 +37,38 @@ class ScheduleCalculator:
         # Rastrear última data de fim por desenvolvedor
         dev_last_end_date: dict[str, date] = {}
 
+        # Mapear histórias por ID para consulta rápida
+        story_map: dict[str, Story] = {s.id: s for s in stories}
+
         # Processar cada história
         for story in stories:
-            # Calcular duração em dias úteis
+            # Calcular duração em dias úteis baseada em SP e velocidade
             story.duration = self._calculate_duration(story.story_point.value, config)
 
-            # Determinar data de início
-            if story.developer_id:
-                # Se desenvolvedor já tem histórias, começar após a última
-                if story.developer_id in dev_last_end_date:
-                    story.start_date = self._next_workday(dev_last_end_date[story.developer_id])
-                else:
-                    story.start_date = start_date
-            else:
-                # Sem desenvolvedor, começar na data inicial
-                story.start_date = start_date
+            # Determinar data de início considerando:
+            # 1. Última história do desenvolvedor (se houver)
+            # 2. Dependências (histórias das quais esta depende)
+
+            earliest_start = start_date
+
+            # Verificar última história do desenvolvedor
+            if story.developer_id and story.developer_id in dev_last_end_date:
+                earliest_start = max(earliest_start, self._next_workday(dev_last_end_date[story.developer_id]))
+
+            # Verificar dependências - história só pode começar após TODAS as dependências terminarem
+            if story.dependencies:
+                for dep_id in story.dependencies:
+                    # Buscar história da qual depende
+                    dep_story = story_map.get(dep_id)
+                    if dep_story and dep_story.end_date:
+                        # Começar no próximo dia útil após a dependência terminar
+                        dep_next_day = self._next_workday(dep_story.end_date)
+                        earliest_start = max(earliest_start, dep_next_day)
+
+            story.start_date = earliest_start
 
             # Calcular data de fim (start_date + duration em dias úteis)
-            story.end_date = self._add_workdays(story.start_date, story.duration)
+            story.end_date = self.add_workdays(story.start_date, story.duration)
 
             # Atualizar última data de fim do desenvolvedor
             if story.developer_id:
@@ -79,7 +93,7 @@ class ScheduleCalculator:
         duration = ceil(story_points / velocity_per_day)
         return max(1, duration)  # Mínimo 1 dia
 
-    def _add_workdays(self, start: date, workdays: int) -> date:
+    def add_workdays(self, start: date, workdays: int) -> date:
         """
         Adiciona dias úteis a uma data.
 

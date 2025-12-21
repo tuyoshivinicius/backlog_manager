@@ -37,7 +37,7 @@ class UpdateStoryUseCase:
             story_id: ID da história
             updates: Dicionário com campos a atualizar
                 Campos possíveis: feature, name, story_point, status,
-                priority, developer_id
+                priority, developer_id, dependencies
 
         Returns:
             Tupla (StoryDTO atualizado, requer_recalculo: bool)
@@ -77,6 +77,14 @@ class UpdateStoryUseCase:
                 story.deallocate_developer()
             else:
                 story.allocate_developer(updates["developer_id"])
+            requires_recalculation = True
+
+        if "dependencies" in updates:
+            # Atualizar dependências da história
+            new_dependencies = updates["dependencies"]
+            if isinstance(new_dependencies, list):
+                # Substituir lista completa de dependências
+                story.dependencies = list(new_dependencies)
             requires_recalculation = True
 
         # 4. Persistir

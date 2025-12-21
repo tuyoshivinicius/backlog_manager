@@ -20,7 +20,7 @@ class StoryDTO:
     priority: int
     developer_id: Optional[str]
     dependencies: List[str]
-    story_point: int
+    story_point: Optional[int]
     start_date: Optional[date]
     end_date: Optional[date]
     duration: Optional[int]

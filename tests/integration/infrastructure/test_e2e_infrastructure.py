@@ -30,20 +30,24 @@ def test_full_flow_excel_import_to_database_to_export(tmp_path):
     # 1. Criar Excel de importação
     wb = Workbook()
     ws = wb.active
-    ws.append(["Feature", "Nome", "StoryPoint"])
-    ws.append(["Autenticação", "Login", 5])
-    ws.append(["Autenticação", "Logout", 3])
-    ws.append(["Dashboard", "Exibir métricas", 8])
+    ws.append(["ID", "Feature", "Nome", "StoryPoint", "Deps"])
+    ws.append(["US-001", "Autenticação", "Login", 5, ""])
+    ws.append(["US-002", "Autenticação", "Logout", 3, ""])
+    ws.append(["US-003", "Dashboard", "Exibir métricas", 8, ""])
     wb.save(import_file)
 
     # 2. Importar histórias
     excel_service = OpenpyxlExcelService()
-    stories = excel_service.import_stories(str(import_file))
+    stories_dto, stats = excel_service.import_stories(str(import_file))
 
-    assert len(stories) == 3
-    assert stories[0].id == "US-001"
-    assert stories[1].id == "US-002"
-    assert stories[2].id == "US-003"
+    assert len(stories_dto) == 3
+    assert stories_dto[0].id == "US-001"
+    assert stories_dto[1].id == "US-002"
+    assert stories_dto[2].id == "US-003"
+
+    # Converter DTOs para entities
+    from backlog_manager.application.dto.converters import dto_to_story
+    stories = [dto_to_story(dto) for dto in stories_dto]
 
     # 3. Salvar no banco
     with UnitOfWork(str(db_path)) as uow:
@@ -66,7 +70,9 @@ def test_full_flow_excel_import_to_database_to_export(tmp_path):
     assert recovered_stories[0].story_point.value == 5
 
     # 5. Exportar para Excel
-    excel_service.export_stories(recovered_stories, str(export_file))
+    from backlog_manager.application.dto.converters import story_to_dto
+    recovered_stories_dto = [story_to_dto(story) for story in recovered_stories]
+    excel_service.export_backlog(str(export_file), recovered_stories_dto)
 
     assert export_file.exists()
 

@@ -301,8 +301,9 @@ class Developer:
 ```python
 @dataclass
 class Configuration:
-    story_points_per_sprint: int = 21  # Velocidade do time
-    workdays_per_sprint: int = 15      # Dias úteis por sprint
+    story_points_per_sprint: int = 21        # Velocidade do time
+    workdays_per_sprint: int = 15            # Dias úteis por sprint
+    roadmap_start_date: Optional[date] = None  # Data de início do roadmap (opcional)
 
     @property
     def velocity_per_day(self) -> float:

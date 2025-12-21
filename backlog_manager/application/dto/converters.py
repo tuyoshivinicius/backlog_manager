@@ -43,12 +43,20 @@ def dto_to_story(dto: StoryDTO) -> Story:
 
     Returns:
         Entidade Story correspondente
+
+    Raises:
+        ValueError: Se story_point for inválido
     """
+    # Converter story_point se não for None
+    story_point = None
+    if dto.story_point is not None:
+        story_point = StoryPoint(dto.story_point)
+
     return Story(
         id=dto.id,
         feature=dto.feature,
         name=dto.name,
-        story_point=StoryPoint(dto.story_point),
+        story_point=story_point,  # type: ignore
         status=StoryStatus.from_string(dto.status),
         priority=dto.priority,
         developer_id=dto.developer_id,
@@ -99,6 +107,7 @@ def configuration_to_dto(config: Configuration) -> ConfigurationDTO:
         story_points_per_sprint=config.story_points_per_sprint,
         workdays_per_sprint=config.workdays_per_sprint,
         velocity_per_day=config.velocity_per_day,
+        roadmap_start_date=config.roadmap_start_date,
     )
 
 

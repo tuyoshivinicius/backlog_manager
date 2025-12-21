@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS stories (
     start_date TEXT,  -- ISO format: 2025-01-15
     end_date TEXT,    -- ISO format: 2025-01-20
     duration INTEGER, -- Duração em dias úteis
+    schedule_order INTEGER, -- Ordem para alocação de desenvolvedores
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (developer_id) REFERENCES developers(id) ON DELETE SET NULL
@@ -40,6 +41,7 @@ CREATE TABLE IF NOT EXISTS configuration (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     story_points_per_sprint INTEGER NOT NULL DEFAULT 21,
     workdays_per_sprint INTEGER NOT NULL DEFAULT 15,
+    roadmap_start_date TEXT,  -- ISO format: 2025-01-15 (opcional)
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

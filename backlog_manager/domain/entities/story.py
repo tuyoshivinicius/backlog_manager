@@ -27,6 +27,7 @@ class Story:
         start_date: Data de início planejada
         end_date: Data de término planejada
         duration: Duração em dias úteis
+        schedule_order: Ordem para alocação de desenvolvedores (sincronizada com priority)
     """
 
     id: str
@@ -40,6 +41,7 @@ class Story:
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     duration: Optional[int] = None
+    schedule_order: Optional[int] = None
 
     def __post_init__(self) -> None:
         """Valida dados após inicialização."""

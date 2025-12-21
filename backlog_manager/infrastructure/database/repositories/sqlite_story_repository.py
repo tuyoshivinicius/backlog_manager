@@ -47,8 +47,8 @@ class SQLiteStoryRepository(StoryRepository):
             REPLACE INTO stories (
                 id, feature, name, status, priority,
                 developer_id, dependencies, story_point,
-                start_date, end_date, duration
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                start_date, end_date, duration, schedule_order
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 row_data["id"],
@@ -62,6 +62,7 @@ class SQLiteStoryRepository(StoryRepository):
                 row_data["start_date"],
                 row_data["end_date"],
                 row_data["duration"],
+                row_data["schedule_order"],
             ),
         )
         # IMPORTANTE: Fazer commit imediatamente para evitar deadlocks
@@ -151,6 +152,7 @@ class SQLiteStoryRepository(StoryRepository):
             "start_date": story.start_date.isoformat() if story.start_date else None,
             "end_date": story.end_date.isoformat() if story.end_date else None,
             "duration": story.duration,
+            "schedule_order": story.schedule_order,
         }
 
     def _row_to_entity(self, row: sqlite3.Row) -> Story:
@@ -175,4 +177,5 @@ class SQLiteStoryRepository(StoryRepository):
             start_date=date.fromisoformat(row["start_date"]) if row["start_date"] else None,
             end_date=date.fromisoformat(row["end_date"]) if row["end_date"] else None,
             duration=row["duration"],
+            schedule_order=row["schedule_order"] if "schedule_order" in row.keys() else None,
         )

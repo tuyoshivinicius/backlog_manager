@@ -47,7 +47,8 @@ class CalculateScheduleUseCase:
         Calcula cronograma completo do backlog.
 
         Args:
-            start_date: Data de início do projeto (opcional, padrão: hoje)
+            start_date: Data de início do projeto (opcional)
+                       Precedência: 1) start_date passado, 2) roadmap_start_date da config, 3) date.today()
 
         Returns:
             BacklogDTO com histórias ordenadas e cronograma calculado
@@ -62,18 +63,29 @@ class CalculateScheduleUseCase:
         if not stories:
             return BacklogDTO(stories=[], total_count=0, total_story_points=0, estimated_duration_days=0)
 
+        # 1.1. Limpar todos os desenvolvedores (reset completo)
+        for story in stories:
+            if story.developer_id:
+                story.deallocate_developer()
+                self._story_repository.save(story)
+
         # 2. Ordenar backlog (valida ciclos internamente)
         sorted_stories = self._backlog_sorter.sort(stories)
 
-        # 3. Calcular cronograma (datas e durações)
-        scheduled_stories = self._schedule_calculator.calculate(sorted_stories, config, start_date)
+        # 3. Determinar data de início efetiva
+        # Precedência: 1) parâmetro passado, 2) config roadmap_start_date, 3) date.today()
+        effective_start_date = start_date or config.roadmap_start_date or date.today()
 
-        # 4. Atualizar prioridades baseado na ordem
+        # 4. Calcular cronograma (datas e durações)
+        scheduled_stories = self._schedule_calculator.calculate(sorted_stories, config, effective_start_date)
+
+        # 5. Atualizar prioridades E schedule_order baseado na ordem
         for index, story in enumerate(scheduled_stories):
             story.priority = index
+            story.schedule_order = index  # Sincronizar schedule_order com a ordem calculada
             self._story_repository.save(story)
 
-        # 5. Calcular metadados
+        # 6. Calcular metadados
         total_sp = sum(s.story_point.value for s in scheduled_stories)
 
         # Calcular duração total (da primeira história à última)
@@ -84,7 +96,7 @@ class CalculateScheduleUseCase:
         else:
             duration_days = 0
 
-        # 6. Retornar BacklogDTO
+        # 7. Retornar BacklogDTO
         return BacklogDTO(
             stories=[story_to_dto(s) for s in scheduled_stories],
             total_count=len(scheduled_stories),

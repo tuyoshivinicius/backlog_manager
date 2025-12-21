@@ -46,7 +46,7 @@ class SQLiteConnection:
         self._connection.execute("PRAGMA foreign_keys = ON")
 
     def _run_migrations(self) -> None:
-        """Executa migrações se banco for novo."""
+        """Executa migrações se banco for novo ou aplica migrations pendentes."""
         cursor = self._connection.cursor()
 
         # Verificar se tabelas existem
@@ -61,6 +61,9 @@ class SQLiteConnection:
             # Banco novo - executar schema
             self._execute_schema()
 
+        # Sempre executar migrations pendentes (idempotentes)
+        self._apply_pending_migrations()
+
     def _execute_schema(self) -> None:
         """Executa script de criação de schema."""
         schema_path = Path(__file__).parent / "schema.sql"
@@ -70,6 +73,50 @@ class SQLiteConnection:
 
         self._connection.executescript(schema_sql)
         self._connection.commit()
+
+    def _apply_pending_migrations(self) -> None:
+        """Aplica todas as migrations pendentes (idempotentes)."""
+        migrations_path = Path(__file__).parent / "migrations"
+
+        # Migration 001: Adicionar coluna roadmap_start_date
+        try:
+            migration_001_path = migrations_path / "001_add_roadmap_start_date.py"
+            if migration_001_path.exists():
+                import importlib.util
+
+                spec = importlib.util.spec_from_file_location("migration_001", migration_001_path)
+                if spec and spec.loader:
+                    migration_001 = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(migration_001)
+
+                    # Executar migration (idempotente)
+                    applied = migration_001.apply_if_needed(self._connection)
+                    if applied:
+                        print("✅ Migration 001 aplicada: coluna roadmap_start_date adicionada")
+        except Exception as e:
+            # Migration já aplicada ou erro - não falhar
+            print(f"ℹ️ Migration 001: {e}")
+            pass
+
+        # Migration 002: Adicionar coluna schedule_order
+        try:
+            migration_002_path = migrations_path / "002_add_schedule_order.py"
+            if migration_002_path.exists():
+                import importlib.util
+
+                spec = importlib.util.spec_from_file_location("migration_002", migration_002_path)
+                if spec and spec.loader:
+                    migration_002 = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(migration_002)
+
+                    # Executar migration (idempotente)
+                    applied = migration_002.apply_if_needed(self._connection)
+                    if applied:
+                        print("✅ Migration 002 aplicada: coluna schedule_order adicionada")
+        except Exception as e:
+            # Migration já aplicada ou erro - não falhar
+            print(f"ℹ️ Migration 002: {e}")
+            pass
 
     def get_connection(self) -> sqlite3.Connection:
         """

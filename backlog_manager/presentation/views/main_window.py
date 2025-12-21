@@ -238,6 +238,20 @@ class MainWindow(QMainWindow):
         calculate_action.triggered.connect(self.calculate_schedule_requested.emit)
         toolbar.addAction(calculate_action)
 
+        # Botão Alocar Desenvolvedores
+        allocate_action = QAction("Alocar Desenvolvedores", self)
+        allocate_action.setStatusTip("Distribui desenvolvedores automaticamente (Shift+F5)")
+        allocate_action.triggered.connect(self.allocate_developers_requested.emit)
+        toolbar.addAction(allocate_action)
+
+        toolbar.addSeparator()
+
+        # Botão Configurações
+        config_action = QAction("⚙️ Configurações", self)
+        config_action.setStatusTip("Configurar velocidade do time e data de início do roadmap")
+        config_action.triggered.connect(self.show_configuration_requested.emit)
+        toolbar.addAction(config_action)
+
     def _create_status_bar(self) -> None:
         """Cria a barra de status."""
         status_bar = QStatusBar()

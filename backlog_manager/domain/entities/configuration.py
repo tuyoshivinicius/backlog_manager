@@ -1,5 +1,7 @@
 """Entidade Configuration (Configuração global)."""
 from dataclasses import dataclass
+from datetime import date
+from typing import Optional
 
 
 @dataclass
@@ -10,10 +12,12 @@ class Configuration:
     Attributes:
         story_points_per_sprint: Velocidade do time em SP por sprint
         workdays_per_sprint: Dias úteis em uma sprint
+        roadmap_start_date: Data de início do roadmap (opcional)
     """
 
     story_points_per_sprint: int = 21
     workdays_per_sprint: int = 15
+    roadmap_start_date: Optional[date] = None
 
     def __post_init__(self) -> None:
         """Valida configuração."""
@@ -31,6 +35,9 @@ class Configuration:
 
         if self.workdays_per_sprint <= 0:
             raise ValueError("Dias úteis por sprint deve ser maior que zero")
+
+        if self.roadmap_start_date is not None and self.roadmap_start_date.weekday() >= 5:
+            raise ValueError("Data de início do roadmap deve ser um dia útil (segunda a sexta)")
 
     @property
     def velocity_per_day(self) -> float:

@@ -1,4 +1,6 @@
 """Implementação SQLite do repositório de configuração."""
+from datetime import date
+
 from backlog_manager.application.interfaces.repositories.configuration_repository import ConfigurationRepository
 from backlog_manager.domain.entities.configuration import Configuration
 from backlog_manager.infrastructure.database.sqlite_connection import SQLiteConnection
@@ -30,12 +32,21 @@ class SQLiteConfigurationRepository(ConfigurationRepository):
             Configuration entity
         """
         cursor = self._conn.cursor()
-        cursor.execute("SELECT * FROM configuration WHERE id = 1")
+        cursor.execute("""
+            SELECT
+                story_points_per_sprint,
+                workdays_per_sprint,
+                roadmap_start_date
+            FROM configuration
+            WHERE id = 1
+        """)
         row = cursor.fetchone()
 
         # Garantido existir (criado no schema)
         return Configuration(
-            story_points_per_sprint=row["story_points_per_sprint"], workdays_per_sprint=row["workdays_per_sprint"]
+            story_points_per_sprint=row["story_points_per_sprint"],
+            workdays_per_sprint=row["workdays_per_sprint"],
+            roadmap_start_date=date.fromisoformat(row["roadmap_start_date"]) if row["roadmap_start_date"] else None,
         )
 
     def save(self, config: Configuration) -> None:
@@ -50,10 +61,15 @@ class SQLiteConfigurationRepository(ConfigurationRepository):
             """
             UPDATE configuration
             SET story_points_per_sprint = ?,
-                workdays_per_sprint = ?
+                workdays_per_sprint = ?,
+                roadmap_start_date = ?
             WHERE id = 1
         """,
-            (config.story_points_per_sprint, config.workdays_per_sprint),
+            (
+                config.story_points_per_sprint,
+                config.workdays_per_sprint,
+                config.roadmap_start_date.isoformat() if config.roadmap_start_date else None,
+            ),
         )
         # IMPORTANTE: Fazer commit imediatamente para evitar deadlocks
         self._conn.commit()

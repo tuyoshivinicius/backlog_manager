@@ -13,16 +13,16 @@ class ExportToExcelUseCase:
     - Retornar caminho do arquivo gerado
     """
 
-    def __init__(self, story_repository: StoryRepository, excel_service: ExcelService):
+    def __init__(self, excel_service: ExcelService, story_repository: StoryRepository):
         """
         Inicializa caso de uso.
 
         Args:
-            story_repository: Repositório de histórias
             excel_service: Serviço de Excel (adaptor)
+            story_repository: Repositório de histórias
         """
-        self._story_repository = story_repository
         self._excel_service = excel_service
+        self._story_repository = story_repository
 
     def execute(self, file_path: str) -> str:
         """
@@ -41,8 +41,12 @@ class ExportToExcelUseCase:
         all_stories = self._story_repository.find_all()
         sorted_stories = sorted(all_stories, key=lambda s: s.priority)
 
-        # 2. Delegar exportação para ExcelService
-        self._excel_service.export_stories(sorted_stories, file_path)
+        # 2. Converter para DTOs
+        from backlog_manager.application.dto.converters import story_to_dto
+        stories_dto = [story_to_dto(story) for story in sorted_stories]
 
-        # 3. Retornar caminho
+        # 3. Delegar exportação para ExcelService
+        self._excel_service.export_backlog(file_path, stories_dto)
+
+        # 4. Retornar caminho
         return file_path

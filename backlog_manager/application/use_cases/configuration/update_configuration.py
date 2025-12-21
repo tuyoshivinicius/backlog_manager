@@ -1,5 +1,6 @@
 """Caso de uso para atualizar configuração."""
-from typing import Tuple
+from datetime import date
+from typing import Optional, Tuple
 
 from backlog_manager.application.dto.configuration_dto import ConfigurationDTO
 from backlog_manager.application.dto.converters import configuration_to_dto
@@ -28,39 +29,44 @@ class UpdateConfigurationUseCase:
         self._configuration_repository = configuration_repository
 
     def execute(
-        self, story_points_per_sprint: int | None = None, workdays_per_sprint: int | None = None
+        self,
+        story_points_per_sprint: int,
+        workdays_per_sprint: int,
+        roadmap_start_date: Optional[date] = None,
     ) -> Tuple[ConfigurationDTO, bool]:
         """
         Atualiza configuração do sistema.
 
         Args:
-            story_points_per_sprint: Nova velocidade (opcional)
-            workdays_per_sprint: Novos dias úteis (opcional)
+            story_points_per_sprint: Nova velocidade (obrigatório)
+            workdays_per_sprint: Novos dias úteis (obrigatório)
+            roadmap_start_date: Nova data de início do roadmap (opcional, None para limpar)
 
         Returns:
             Tupla (ConfigurationDTO atualizado, requer_recalculo: bool)
 
         Raises:
-            ValueError: Se valores inválidos
+            ValueError: Se valores inválidos (ex: data em fim de semana)
         """
         # 1. Buscar configuração atual
         current = self._configuration_repository.get()
 
-        # 2. Determinar novos valores
-        new_sp = story_points_per_sprint if story_points_per_sprint is not None else current.story_points_per_sprint
-
-        new_workdays = workdays_per_sprint if workdays_per_sprint is not None else current.workdays_per_sprint
-
-        # 3. Verificar se houve mudança
+        # 2. Verificar se houve mudança
         requires_recalculation = (
-            new_sp != current.story_points_per_sprint or new_workdays != current.workdays_per_sprint
+            story_points_per_sprint != current.story_points_per_sprint
+            or workdays_per_sprint != current.workdays_per_sprint
+            or roadmap_start_date != current.roadmap_start_date
         )
 
-        # 4. Criar nova configuração (validação acontece no __post_init__)
-        new_config = Configuration(story_points_per_sprint=new_sp, workdays_per_sprint=new_workdays)
+        # 3. Criar nova configuração (validação acontece no __post_init__)
+        new_config = Configuration(
+            story_points_per_sprint=story_points_per_sprint,
+            workdays_per_sprint=workdays_per_sprint,
+            roadmap_start_date=roadmap_start_date,
+        )
 
-        # 5. Persistir
+        # 4. Persistir
         self._configuration_repository.save(new_config)
 
-        # 6. Retornar (DTO, flag_recalculo)
+        # 5. Retornar (DTO, flag_recalculo)
         return configuration_to_dto(new_config), requires_recalculation

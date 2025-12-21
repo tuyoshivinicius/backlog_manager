@@ -12,7 +12,7 @@ class CreateStoryUseCase:
     Caso de uso para criar nova história.
 
     Responsabilidades:
-    - Gerar ID automático sequencial (US-001, US-002, etc)
+    - Gerar ID automático baseado na feature (ex: S1, S2 para "Solicitação")
     - Definir prioridade inicial (última posição)
     - Criar e persistir história
     """
@@ -43,10 +43,33 @@ class CreateStoryUseCase:
         Raises:
             ValueError: Se dados inválidos ou story point inválido
         """
-        # 1. Gerar ID sequencial
+        # 1. Gerar ID baseado na feature (primeira letra + número incremental)
         all_stories = self._story_repository.find_all()
-        next_number = len(all_stories) + 1
-        story_id = f"US-{next_number:03d}"
+
+        # Obter primeira letra da feature (maiúscula)
+        feature = story_data["feature"].strip()
+        if not feature:
+            raise ValueError("Feature não pode ser vazia")
+
+        prefix = feature[0].upper()
+
+        # Encontrar maior número com o mesmo prefixo
+        max_number = 0
+        for story in all_stories:
+            if story.id.startswith(prefix) and len(story.id) > 1:
+                try:
+                    # Extrair número do ID (ex: S1 -> 1, S10 -> 10)
+                    number_part = story.id[1:]
+                    number = int(number_part)
+                    if number > max_number:
+                        max_number = number
+                except ValueError:
+                    # Ignorar IDs que não seguem o padrão
+                    continue
+
+        # Gerar próximo ID
+        next_number = max_number + 1
+        story_id = f"{prefix}{next_number}"
 
         # 2. Determinar prioridade (última posição)
         priority = len(all_stories)

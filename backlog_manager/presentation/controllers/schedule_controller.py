@@ -92,16 +92,35 @@ class ScheduleController:
             )
 
     def allocate_developers(self) -> None:
-        """Aloca desenvolvedores automaticamente."""
+        """Aloca desenvolvedores automaticamente e mostra relatório."""
         try:
-            count = self._allocate_use_case.execute()
-            MessageBox.success(
-                self._parent_widget,
-                "Sucesso",
-                f"{count} histórias alocadas automaticamente!",
+            if self._show_loading_callback:
+                self._show_loading_callback()
+
+            # Executar alocação (retorna contagem e warnings)
+            allocated_count, warnings = self._allocate_use_case.execute()
+
+            if self._hide_loading_callback:
+                self._hide_loading_callback()
+
+            # Mostrar relatório com warnings
+            from backlog_manager.presentation.utils.allocation_report_dialog import (
+                AllocationReportDialog
             )
+
+            dialog = AllocationReportDialog(
+                self._parent_widget,
+                allocated_count,
+                warnings
+            )
+            dialog.exec()
+
+            # Atualizar view
             self._refresh_view()
+
         except Exception as e:
+            if self._hide_loading_callback:
+                self._hide_loading_callback()
             MessageBox.error(
                 self._parent_widget, "Erro ao Alocar Desenvolvedores", str(e)
             )

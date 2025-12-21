@@ -23,13 +23,13 @@ def valid_excel_file(tmp_path):
     wb = Workbook()
     ws = wb.active
 
-    # Cabeçalho
-    ws.append(["Feature", "Nome", "StoryPoint"])
+    # Cabeçalho (NOVO: 5 colunas)
+    ws.append(["ID", "Feature", "Nome", "StoryPoint", "Deps"])
 
     # Dados
-    ws.append(["Autenticação", "Login de usuário", 5])
-    ws.append(["Autenticação", "Logout", 3])
-    ws.append(["Dashboard", "Exibir métricas", 8])
+    ws.append(["US-001", "Autenticação", "Login de usuário", 5, ""])
+    ws.append(["US-002", "Autenticação", "Logout", 3, ""])
+    ws.append(["US-003", "Dashboard", "Exibir métricas", 8, ""])
 
     wb.save(file_path)
     return str(file_path)
@@ -37,15 +37,20 @@ def valid_excel_file(tmp_path):
 
 def test_import_valid_excel(excel_service, valid_excel_file):
     """Deve importar histórias de Excel válido."""
-    stories = excel_service.import_stories(valid_excel_file)
+    stories, stats = excel_service.import_stories(valid_excel_file)
 
     assert len(stories) == 3
     assert stories[0].id == "US-001"
     assert stories[0].feature == "Autenticação"
     assert stories[0].name == "Login de usuário"
-    assert stories[0].story_point.value == 5
+    assert stories[0].story_point == 5
     assert stories[1].id == "US-002"
     assert stories[2].id == "US-003"
+
+    # Verificar estatísticas
+    assert stats["total_importadas"] == 3
+    assert stats["ignoradas_duplicadas"] == 0
+    assert stats["ignoradas_invalidas"] == 0
 
 
 def test_import_file_not_found(excel_service):
@@ -60,60 +65,77 @@ def test_import_invalid_header(excel_service, tmp_path):
 
     wb = Workbook()
     ws = wb.active
-    ws.append(["Coluna1", "Coluna2", "Coluna3"])  # Cabeçalho errado
-    ws.append(["Feature1", "Story1", 5])
+    ws.append(["Coluna1", "Coluna2", "Coluna3", "Coluna4", "Coluna5"])  # Cabeçalho errado
+    ws.append(["ID1", "Feature1", "Story1", 5, ""])
     wb.save(file_path)
 
-    with pytest.raises(ValueError, match="Colunas inválidas"):
+    with pytest.raises(ValueError, match="Layout inválido"):
         excel_service.import_stories(str(file_path))
 
 
 def test_import_invalid_story_point_raises_error(excel_service, tmp_path):
-    """Deve lançar erro se Story Point inválido."""
+    """Deve ignorar linha com Story Point inválido e adicionar warning."""
     file_path = tmp_path / "invalid.xlsx"
 
     wb = Workbook()
     ws = wb.active
-    ws.append(["Feature", "Nome", "StoryPoint"])
-    ws.append(["Feature1", "Story1", 7])  # 7 é inválido
+    ws.append(["ID", "Feature", "Nome", "StoryPoint", "Deps"])
+    ws.append(["US-001", "Feature1", "Story1", 7, ""])  # 7 é inválido
+    ws.append(["US-002", "Feature2", "Story2", 5, ""])  # Válido
     wb.save(file_path)
 
-    with pytest.raises(ValueError, match="Story Point inválido"):
-        excel_service.import_stories(str(file_path))
+    stories, stats = excel_service.import_stories(str(file_path))
+
+    # História com story point inválido deve ser ignorada
+    assert len(stories) == 1
+    assert stories[0].id == "US-002"
+    assert stats["ignoradas_invalidas"] == 1
+    assert any("Story Point inválido" in w for w in stats["warnings"])
 
 
 def test_import_missing_data(excel_service, tmp_path):
-    """Deve lançar erro se dados obrigatórios faltando."""
+    """Deve ignorar linha com dados obrigatórios faltando."""
     file_path = tmp_path / "missing_data.xlsx"
 
     wb = Workbook()
     ws = wb.active
-    ws.append(["Feature", "Nome", "StoryPoint"])
-    ws.append(["Feature1", None, 5])  # Nome faltando
+    ws.append(["ID", "Feature", "Nome", "StoryPoint", "Deps"])
+    ws.append(["US-001", "Feature1", None, 5, ""])  # Nome faltando
+    ws.append(["US-002", "Feature2", "Story2", 5, ""])  # Válido
     wb.save(file_path)
 
-    with pytest.raises(ValueError, match="Dados obrigatórios faltando"):
-        excel_service.import_stories(str(file_path))
+    stories, stats = excel_service.import_stories(str(file_path))
+
+    # Linha com nome vazio deve ser ignorada
+    assert len(stories) == 1
+    assert stories[0].id == "US-002"
+    assert stats["ignoradas_invalidas"] == 1
+    assert any("Nome vazio" in w for w in stats["warnings"])
 
 
 def test_export_creates_formatted_excel(excel_service, tmp_path):
     """Deve exportar backlog para Excel formatado."""
+    from backlog_manager.application.dto.story_dto import StoryDTO
+
     file_path = tmp_path / "export.xlsx"
 
     stories = [
-        Story(
+        StoryDTO(
             id="US-001",
             feature="F1",
             name="S1",
-            status=StoryStatus.BACKLOG,
+            status="BACKLOG",
             priority=0,
             developer_id="DEV-001",
             dependencies=["US-002"],
-            story_point=StoryPoint(5),
+            story_point=5,
+            start_date=None,
+            end_date=None,
+            duration=None,
         )
     ]
 
-    excel_service.export_stories(stories, str(file_path))
+    excel_service.export_backlog(str(file_path), stories)
 
     assert Path(file_path).exists()
 
@@ -139,42 +161,53 @@ def test_export_creates_formatted_excel(excel_service, tmp_path):
 
 def test_export_multiple_stories(excel_service, tmp_path):
     """Deve exportar múltiplas histórias."""
+    from backlog_manager.application.dto.story_dto import StoryDTO
+
     file_path = tmp_path / "export_multiple.xlsx"
 
     stories = [
-        Story(
+        StoryDTO(
             id="US-001",
             feature="F1",
             name="S1",
-            status=StoryStatus.BACKLOG,
+            status="BACKLOG",
             priority=0,
             developer_id=None,
             dependencies=[],
-            story_point=StoryPoint(3),
+            story_point=3,
+            start_date=None,
+            end_date=None,
+            duration=None,
         ),
-        Story(
+        StoryDTO(
             id="US-002",
             feature="F1",
             name="S2",
-            status=StoryStatus.EXECUCAO,
+            status="EXECUCAO",
             priority=1,
             developer_id="DEV-001",
             dependencies=["US-001"],
-            story_point=StoryPoint(5),
+            story_point=5,
+            start_date=None,
+            end_date=None,
+            duration=None,
         ),
-        Story(
+        StoryDTO(
             id="US-003",
             feature="F2",
             name="S3",
-            status=StoryStatus.CONCLUIDO,
+            status="CONCLUIDO",
             priority=2,
             developer_id="DEV-002",
             dependencies=[],
-            story_point=StoryPoint(8),
+            story_point=8,
+            start_date=None,
+            end_date=None,
+            duration=None,
         ),
     ]
 
-    excel_service.export_stories(stories, str(file_path))
+    excel_service.export_backlog(str(file_path), stories)
 
     # Verificar
     wb = load_workbook(file_path)
