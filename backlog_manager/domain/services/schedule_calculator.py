@@ -16,7 +16,9 @@ class ScheduleCalculator:
     - Sequenciamento: histórias do mesmo dev executam em sequência
     """
 
-    def calculate(self, stories: list[Story], config: Configuration, start_date: date | None = None) -> list[Story]:
+    def calculate(
+        self, stories: list[Story], config: Configuration, start_date: date | None = None
+    ) -> list[Story]:
         """
         Calcula cronograma completo para lista de histórias.
 
@@ -53,9 +55,12 @@ class ScheduleCalculator:
 
             # Verificar última história do desenvolvedor
             if story.developer_id and story.developer_id in dev_last_end_date:
-                earliest_start = max(earliest_start, self._next_workday(dev_last_end_date[story.developer_id]))
+                earliest_start = max(
+                    earliest_start, self._next_workday(dev_last_end_date[story.developer_id])
+                )
 
-            # Verificar dependências - história só pode começar após TODAS as dependências terminarem
+            # Verificar dependências - história só pode começar
+            # após TODAS as dependências terminarem
             if story.dependencies:
                 for dep_id in story.dependencies:
                     # Buscar história da qual depende
@@ -67,8 +72,10 @@ class ScheduleCalculator:
 
             story.start_date = earliest_start
 
-            # Calcular data de fim (start_date + duration em dias úteis)
-            story.end_date = self.add_workdays(story.start_date, story.duration)
+            # Calcular data de fim (start_date + duration - 1 em dias úteis)
+            # Duration de 1 dia: end_date = start_date (mesmo dia)
+            # Duration de 4 dias: end_date = start_date + 3 dias úteis
+            story.end_date = self.add_workdays(story.start_date, story.duration - 1)
 
             # Atualizar última data de fim do desenvolvedor
             if story.developer_id:
@@ -106,16 +113,17 @@ class ScheduleCalculator:
         Returns:
             Data final após adicionar dias úteis
         """
+        if workdays == 0:
+            return start
+
         current = start
         days_added = 0
 
         while days_added < workdays:
+            current = current + timedelta(days=1)
             # 0 = Segunda, 6 = Domingo
             if current.weekday() < 5:  # Segunda a Sexta
                 days_added += 1
-
-            if days_added < workdays:
-                current = current + timedelta(days=1)
 
         return current
 

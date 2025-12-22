@@ -1,8 +1,6 @@
 """Testes para ScheduleCalculator."""
 import time
-from datetime import date, timedelta
-
-import pytest
+from datetime import date
 
 from backlog_manager.domain.entities.configuration import Configuration
 from backlog_manager.domain.entities.story import Story
@@ -51,7 +49,9 @@ class TestScheduleCalculator:
         for sp, expected_duration in test_cases:
             story = Story(id=f"S{sp}", feature="Test", name="Test", story_point=StoryPoint(sp))
             result = calculator.calculate([story], config)
-            assert result[0].duration == expected_duration, f"SP {sp} should have duration {expected_duration}"
+            assert (
+                result[0].duration == expected_duration
+            ), f"SP {sp} should have duration {expected_duration}"
 
     def test_calculate_minimum_duration_one_day(self) -> None:
         """Duração mínima deve ser 1 dia."""
@@ -85,14 +85,15 @@ class TestScheduleCalculator:
         config = Configuration()
         start_date = date(2025, 1, 3)  # Sexta-feira
 
-        # História com duração de 3 dias úteis
+        # História com duração de 4 dias úteis (5 SP / 1.4 = 3.57, ceil = 4)
         story = Story(id="S1", feature="Test", name="Test", story_point=StoryPoint(5))
 
         result = calculator.calculate([story], config, start_date)
 
         assert result[0].start_date == date(2025, 1, 3)  # Sexta
-        # 3 dias: Sexta (3), Segunda (6), Terça (7)
-        assert result[0].end_date == date(2025, 1, 7)  # Terça
+        assert result[0].duration == 4  # 4 dias úteis
+        # 4 dias: Sexta (3), Segunda (6), Terça (7), Quarta (8)
+        assert result[0].end_date == date(2025, 1, 8)  # Quarta
 
     def test_calculate_sequential_stories_same_developer(self) -> None:
         """Histórias do mesmo desenvolvedor devem executar em sequência."""
@@ -100,8 +101,12 @@ class TestScheduleCalculator:
         config = Configuration()
         start_date = date(2025, 1, 6)  # Segunda
 
-        story1 = Story(id="S1", feature="Test", name="Test1", story_point=StoryPoint(5), developer_id="DEV1")
-        story2 = Story(id="S2", feature="Test", name="Test2", story_point=StoryPoint(5), developer_id="DEV1")
+        story1 = Story(
+            id="S1", feature="Test", name="Test1", story_point=StoryPoint(5), developer_id="DEV1"
+        )
+        story2 = Story(
+            id="S2", feature="Test", name="Test2", story_point=StoryPoint(5), developer_id="DEV1"
+        )
 
         result = calculator.calculate([story1, story2], config, start_date)
 
@@ -119,8 +124,12 @@ class TestScheduleCalculator:
         config = Configuration()
         start_date = date(2025, 1, 6)  # Segunda
 
-        story1 = Story(id="S1", feature="Test", name="Test1", story_point=StoryPoint(5), developer_id="DEV1")
-        story2 = Story(id="S2", feature="Test", name="Test2", story_point=StoryPoint(5), developer_id="DEV2")
+        story1 = Story(
+            id="S1", feature="Test", name="Test1", story_point=StoryPoint(5), developer_id="DEV1"
+        )
+        story2 = Story(
+            id="S2", feature="Test", name="Test2", story_point=StoryPoint(5), developer_id="DEV2"
+        )
 
         result = calculator.calculate([story1, story2], config, start_date)
 
@@ -153,9 +162,13 @@ class TestScheduleCalculator:
         config = Configuration()
         start_date = date(2025, 1, 6)
 
-        story1 = Story(id="S1", feature="Test", name="Test1", story_point=StoryPoint(5), developer_id="DEV1")
+        story1 = Story(
+            id="S1", feature="Test", name="Test1", story_point=StoryPoint(5), developer_id="DEV1"
+        )
         story2 = Story(id="S2", feature="Test", name="Test2", story_point=StoryPoint(5))
-        story3 = Story(id="S3", feature="Test", name="Test3", story_point=StoryPoint(5), developer_id="DEV1")
+        story3 = Story(
+            id="S3", feature="Test", name="Test3", story_point=StoryPoint(5), developer_id="DEV1"
+        )
 
         result = calculator.calculate([story1, story2, story3], config, start_date)
 

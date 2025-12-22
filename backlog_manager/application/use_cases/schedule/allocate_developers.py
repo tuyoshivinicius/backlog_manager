@@ -1,14 +1,17 @@
 """Caso de uso para alocar desenvolvedores."""
-from typing import Tuple, List, Optional
 from datetime import date
-from dataclasses import dataclass
+from typing import List, Set, Tuple
 
-from backlog_manager.application.interfaces.repositories.developer_repository import DeveloperRepository
+from backlog_manager.application.interfaces.repositories.configuration_repository import (
+    ConfigurationRepository,
+)
+from backlog_manager.application.interfaces.repositories.developer_repository import (
+    DeveloperRepository,
+)
 from backlog_manager.application.interfaces.repositories.story_repository import StoryRepository
-from backlog_manager.application.interfaces.repositories.configuration_repository import ConfigurationRepository
+from backlog_manager.domain.entities.configuration import Configuration
 from backlog_manager.domain.entities.developer import Developer
 from backlog_manager.domain.entities.story import Story
-from backlog_manager.domain.entities.configuration import Configuration
 from backlog_manager.domain.services.developer_load_balancer import DeveloperLoadBalancer
 from backlog_manager.domain.services.idleness_detector import IdlenessDetector, IdlenessWarning
 from backlog_manager.domain.services.schedule_calculator import ScheduleCalculator
@@ -20,105 +23,29 @@ class NoDevelopersAvailableException(Exception):
     pass
 
 
-@dataclass
-class PendingStory:
-    """
-    Representa uma história pendente de alocação.
-
-    Mantém o número de tentativas de alocação para calcular
-    o incremento linear de dias.
-    """
-
-    story: Story
-    attempts: int = 0
-
-    def next_increment(self) -> int:
-        """
-        Calcula próximo incremento linear de dias.
-
-        Returns:
-            Número de dias a incrementar (1, 2, 3, 4...)
-
-        Examples:
-            >>> ps = PendingStory(story, attempts=0)
-            >>> ps.next_increment()
-            1
-            >>> ps = PendingStory(story, attempts=1)
-            >>> ps.next_increment()
-            2
-            >>> ps = PendingStory(story, attempts=3)
-            >>> ps.next_increment()
-            4
-        """
-        return self.attempts + 1
-
-
-class AllocationQueue:
-    """
-    Fila de histórias pendentes de alocação.
-
-    Mantém histórias que não puderam ser alocadas imediatamente
-    devido à indisponibilidade de desenvolvedores.
-    """
-
-    def __init__(self):
-        """Inicializa fila vazia."""
-        self._pending: List[PendingStory] = []
-
-    def add(self, story: Story, attempts: int = 0) -> None:
-        """
-        Adiciona história à fila de pendentes.
-
-        Args:
-            story: História a adicionar
-            attempts: Número de tentativas anteriores
-        """
-        self._pending.append(PendingStory(story, attempts))
-
-    def pop_next(self) -> Optional[PendingStory]:
-        """
-        Remove e retorna próxima história pendente.
-
-        Returns:
-            PendingStory ou None se fila vazia
-        """
-        if not self._pending:
-            return None
-        return self._pending.pop(0)
-
-    def is_empty(self) -> bool:
-        """
-        Verifica se fila está vazia.
-
-        Returns:
-            True se fila vazia
-        """
-        return len(self._pending) == 0
-
-    def size(self) -> int:
-        """
-        Retorna tamanho da fila.
-
-        Returns:
-            Número de histórias pendentes
-        """
-        return len(self._pending)
-
-
 class AllocateDevelopersUseCase:
     """
     Caso de uso para alocar desenvolvedores em histórias.
 
-    **NOVO ALGORITMO - Baseado em Ordem da Tabela (schedule_order):**
+    **ALGORITMO - RF-ALOC-001 (Lista Simples com Flag de Ajuste Único):**
 
     Estratégia:
     0. Sincroniza schedule_order com ordem ATUAL da tabela (priority)
-    1. Ordena histórias por schedule_order (reflete ordem da tabela)
-    2. Mantém fila de histórias pendentes
-    3. Prioriza retorno a histórias pendentes antes de processar novas
-    4. Quando não há dev disponível: ajusta data de início da história
-    5. Usa incremento linear nas tentativas (1, 2, 3, 4...)
-    6. Balanceia carga entre desenvolvedores (menos histórias + alfabético)
+    1. Loop contínuo até não haver mais histórias não alocadas:
+       - Lista histórias não alocadas
+       - Itera sequencialmente sobre cada história
+       - Se há dev disponível: aloca e REINICIA lista
+       - Se não há dev disponível:
+         * Se já foi ajustada (flag): pula para próxima
+         * Se não foi ajustada: ajusta +1 dia e marca flag
+    2. Balanceia carga entre desenvolvedores (menos histórias + desempate aleatório)
+    3. Detecta e reporta gaps de ociosidade
+
+    Diferenças do algoritmo anterior:
+    - SEM fila de pendentes: lista simples que reinicia após cada alocação
+    - Incremento ÚNICO: cada história só pode ter data ajustada UMA vez (+1 dia)
+    - Desempate ALEATÓRIO: entre devs com mesma carga (antes era alfabético)
+    - Flag temporária: controla se história já foi ajustada (não persiste no banco)
 
     O campo schedule_order:
     - É atualizado AUTOMATICAMENTE no início de cada alocação
@@ -126,19 +53,14 @@ class AllocateDevelopersUseCase:
     - Permite que mudanças manuais de prioridade sejam respeitadas
     - Garante que alocação usa ordem visual da tabela
 
-    Fluxo:
-    1. Usuário pode reordenar histórias manualmente (muda priority)
-    2. Ao clicar "Alocar Desenvolvedores":
-       - schedule_order é atualizado automaticamente
-       - Alocação usa ordem atual (não ordem do último Calcular Cronograma)
-
     Responsabilidades:
     - Sincronizar schedule_order com tabela
     - Buscar histórias não alocadas
     - Ordenar por schedule_order
     - Buscar desenvolvedores disponíveis
-    - Distribuir com balanceamento de carga
-    - Ajustar datas quando não há disponibilidade
+    - Distribuir com balanceamento de carga (desempate aleatório)
+    - Ajustar datas (+1 dia) quando não há disponibilidade (máx 1x por história)
+    - Detectar deadlock (quando nenhuma história pode ser alocada)
     - Detectar e reportar gaps de ociosidade
     - Persistir alocações
     """
@@ -150,7 +72,7 @@ class AllocateDevelopersUseCase:
         configuration_repository: ConfigurationRepository,
         load_balancer: DeveloperLoadBalancer,
         idleness_detector: IdlenessDetector,
-        schedule_calculator: ScheduleCalculator
+        schedule_calculator: ScheduleCalculator,
     ):
         """
         Inicializa caso de uso.
@@ -172,24 +94,28 @@ class AllocateDevelopersUseCase:
 
     def execute(self) -> Tuple[int, List[IdlenessWarning]]:
         """
-        Aloca desenvolvedores usando ordem ATUAL da tabela (schedule_order).
+        Aloca desenvolvedores usando algoritmo RF-ALOC-001.
 
-        **ALGORITMO:**
+        **ALGORITMO (Lista Simples com Flag de Ajuste Único):**
 
         0. Atualiza schedule_order baseado na ordem atual da tabela (priority)
-        1. Busca histórias não alocadas com datas e story points definidos
-        2. Ordena por schedule_order (reflete ordem atual da tabela)
-        3. Cria fila de histórias pendentes
-        4. Loop principal:
-           - PRIORIDADE 1: Processar fila de pendentes primeiro
-           - PRIORIDADE 2: Processar próxima história não alocada (na ordem de schedule_order)
-           - Buscar desenvolvedores disponíveis no período da história
-           - Se há disponíveis: alocar para o com menos histórias
-           - Se não há disponíveis: ajustar data da história (+incremento linear)
-        5. Detectar ociosidade após todas as alocações
+        1. Valida desenvolvedores (lança exceção se nenhum)
+        2. Cria contexto: adjusted_stories = set() (flag de ajuste)
+        3. Loop principal (máx 1000 iterações):
+           - Lista histórias não alocadas (com datas definidas)
+           - Se lista vazia: PARAR (todas alocadas)
+           - Para cada história:
+             * Busca desenvolvedores disponíveis
+             * Se há dev: aloca (desempate aleatório) e REINICIA lista
+             * Se não há dev:
+               - Se já foi ajustada: PULA
+               - Se não foi ajustada: +1 dia útil e marca flag
+           - Se nenhuma alocação nesta iteração: BREAK (deadlock)
+        4. Detecta ociosidade após todas as alocações
 
         **Critérios de Parada:**
         - Todas histórias alocadas → SUCESSO
+        - Nenhuma história pode ser alocada (deadlock) → PARAR
         - Limite de iterações (1000) → PARAR (evitar loop infinito)
 
         Returns:
@@ -201,108 +127,107 @@ class AllocateDevelopersUseCase:
         # 0. SINCRONIZAR schedule_order com ordem ATUAL da tabela
         self._update_schedule_order_from_table()
 
-        # 1. INICIALIZAÇÃO
+        # 1. VALIDAÇÕES
         developers = self._developer_repository.find_all()
         if not developers:
-            raise NoDevelopersAvailableException(
-                "Nenhum desenvolvedor disponível para alocação"
-            )
+            raise NoDevelopersAvailableException("Nenhum desenvolvedor disponível para alocação")
 
         config = self._configuration_repository.get()
 
-        # 2. BUSCAR HISTÓRIAS ELEGÍVEIS
-        all_stories = self._story_repository.find_all()
-        eligible_stories = [
-            s for s in all_stories
-            if s.developer_id is None
-            and s.start_date is not None
-            and s.end_date is not None
-            and s.story_point is not None
-        ]
-
-        if not eligible_stories:
-            return 0, []  # Nada a alocar
-
-        # 3. ORDENAR por schedule_order (ordem ATUAL da tabela)
-        eligible_stories.sort(key=lambda s: s.schedule_order if s.schedule_order is not None else float('inf'))
-
-        # 4. CRIAR FILA DE PENDENTES
-        pending_queue = AllocationQueue()
-
-        # 5. ITERAÇÃO PRINCIPAL
+        # 2. CONTEXTO DE ALOCAÇÃO (flags de ajuste - RF-ALOC-007)
+        adjusted_stories_ever: Set[str] = set()  # Flag permanente
+        adjusted_stories_last_iteration: Set[str] = set()  # Flag volátil
         allocated_count = 0
-        max_iterations = 1000  # Evitar loop infinito
-        iteration = 0
-        processed_ids = set()  # Rastrear histórias já processadas
+        max_iterations = 1000
 
-        while iteration < max_iterations:
-            iteration += 1
-
-            # **PRIORIDADE 1: Processar fila de pendentes PRIMEIRO**
-            pending_story = pending_queue.pop_next()
-
-            if pending_story is not None:
-                story = pending_story.story
-                attempts = pending_story.attempts
-            else:
-                # **PRIORIDADE 2: Pegar próxima história não alocada**
-                story = self._get_next_unallocated_story(eligible_stories, processed_ids)
-
-                if story is None:
-                    # Todas histórias foram processadas
-                    break
-
-                attempts = 0
-                processed_ids.add(story.id)
-
-            # Buscar histórias atualizadas (podem ter sido alocadas em iterações anteriores)
+        # 3. LOOP PRINCIPAL
+        for iteration in range(max_iterations):
+            # Resetar flag "desta iteração"
+            adjusted_stories_this_iteration: Set[str] = set()
+            # 4. LISTAR histórias não alocadas
             all_stories = self._story_repository.find_all()
+            unallocated_stories = self._get_unallocated_stories(all_stories)
 
-            # 6. TENTAR ALOCAR DESENVOLVEDOR
-            available_devs = self._get_available_developers(
-                story.start_date,  # type: ignore
-                story.end_date,  # type: ignore
-                all_stories,
-                developers
-            )
+            if not unallocated_stories:
+                break  # Todas alocadas
 
-            if not available_devs:
-                # **NÃO HÁ DEV DISPONÍVEL → AJUSTAR DATA DA HISTÓRIA**
+            # 5. FLAG para detectar se houve alocação nesta iteração
+            allocation_made = False
 
-                # Calcular incremento linear
-                increment = self._calculate_linear_increment(attempts)
+            # 5.1. VERIFICAR se há histórias que NÃO foram ajustadas na última iteração
+            # (para decidir se devemos pular ou não)
+            stories_not_adjusted_last = [
+                s for s in unallocated_stories if s.id not in adjusted_stories_last_iteration
+            ]
+            has_unadjusted_stories = len(stories_not_adjusted_last) > 0
 
-                # Ajustar data de início (adicionar dias úteis)
-                self._adjust_story_dates(story, increment, config)
+            # 6. ITERAR sobre cada história
+            for story in unallocated_stories:
+                # 7. VERIFICAR disponibilidade
+                available_devs = self._get_available_developers(
+                    story.start_date,  # type: ignore
+                    story.end_date,  # type: ignore
+                    all_stories,
+                    developers,
+                )
 
-                # Incrementar tentativas
-                attempts += 1
+                if available_devs:
+                    # 8. HÁ DEV DISPONÍVEL - ALOCAR
+                    # Ordenar com desempate aleatório
+                    sorted_devs = self._load_balancer.sort_by_load_random_tiebreak(
+                        available_devs, all_stories
+                    )
 
-                # Adicionar de volta à fila de pendentes
-                pending_queue.add(story, attempts)
+                    # Alocar primeiro
+                    selected_dev = sorted_devs[0]
+                    story.allocate_developer(selected_dev.id)
+                    self._story_repository.save(story)
 
-                # Salvar alteração de data
-                self._story_repository.save(story)
+                    allocated_count += 1
+                    allocation_made = True
 
-                continue  # Próxima iteração
+                    # 9. REINICIAR (vai buscar lista atualizada)
+                    break  # Sai do for, volta ao while
 
-            # **HÁ DEV DISPONÍVEL → ALOCAR**
+                else:
+                    # 10. NÃO HÁ DEV - VERIFICAR FLAGS (RF-ALOC-006 a RF-ALOC-009)
 
-            # Ordenar devs por balanceamento + alfabético
-            sorted_devs = self._load_balancer.sort_by_load_and_name(
-                available_devs, all_stories
-            )
+                    already_adjusted_ever = story.id in adjusted_stories_ever
 
-            # Selecionar primeiro (menos histórias + alfabético)
-            selected_dev = sorted_devs[0]
+                    if already_adjusted_ever:
+                        # Já foi ajustada alguma vez
+                        adjusted_last_iteration = story.id in adjusted_stories_last_iteration
 
-            # Alocar
-            story.allocate_developer(selected_dev.id)
-            self._story_repository.save(story)
+                        if adjusted_last_iteration and has_unadjusted_stories:
+                            # Ajustada na iteração anterior E há outras histórias não ajustadas:
+                            # PULAR para dar prioridade às outras (RF-ALOC-009)
+                            continue
+                        else:
+                            # Não foi na última iteração OU não há outras histórias:
+                            # AJUSTAR (RF-ALOC-008)
+                            self._adjust_story_dates(story, 1, config)
+                            adjusted_stories_ever.add(story.id)
+                            adjusted_stories_this_iteration.add(story.id)
+                            self._story_repository.save(story)
+                    else:
+                        # Nunca foi ajustada: AJUSTAR pela primeira vez (RF-ALOC-008)
+                        self._adjust_story_dates(story, 1, config)
+                        adjusted_stories_ever.add(story.id)
+                        adjusted_stories_this_iteration.add(story.id)
+                        self._story_repository.save(story)
 
-            allocated_count += 1
+            # FIM do loop de histórias
 
-        # 7. DETECTAR OCIOSIDADE
+            # Atualizar flag "última iteração" para próxima rodada (RF-ALOC-007)
+            adjusted_stories_last_iteration = adjusted_stories_this_iteration.copy()
+
+            # 11. DETECÇÃO DE DEADLOCK REAL (RF-ALOC-010)
+            if not allocation_made and len(adjusted_stories_this_iteration) == 0:
+                # Nenhuma alocação E nenhum ajuste de data nesta iteração
+                # DEADLOCK REAL: não há progresso possível
+                break
+
+        # 12. DETECTAR OCIOSIDADE
         all_stories = self._story_repository.find_all()
         warnings = self._idleness_detector.detect_idleness(all_stories)
 
@@ -317,7 +242,7 @@ class AllocateDevelopersUseCase:
 
         Chamado automaticamente no início de execute() antes da alocação.
         """
-        # 1. Buscar TODAS as histórias ordenadas por priority (ordem da tabela)
+        # 1. Buscar TODAS as histórias ordenadas by priority (ordem da tabela)
         all_stories = self._story_repository.find_all()
 
         # 2. Atualizar schedule_order = índice na ordem atual
@@ -325,32 +250,45 @@ class AllocateDevelopersUseCase:
             story.schedule_order = index
             self._story_repository.save(story)
 
-    def _get_next_unallocated_story(
-        self,
-        stories: List[Story],
-        processed_ids: set
-    ) -> Optional[Story]:
+    def _get_unallocated_stories(self, all_stories: List[Story]) -> List[Story]:
         """
-        Retorna próxima história não alocada na ordem da tabela (schedule_order).
+        Retorna histórias elegíveis para alocação.
+
+        Elegível se:
+        - Não tem desenvolvedor
+        - Tem datas definidas
+        - Tem story point definido
+
+        Ordenadas por schedule_order.
 
         Args:
-            stories: Lista de histórias ordenadas por schedule_order
-            processed_ids: IDs de histórias já processadas
+            all_stories: Lista de todas as histórias
 
         Returns:
-            Próxima história não alocada ou None se todas foram processadas
+            Lista ordenada de histórias elegíveis
         """
-        for story in stories:
-            if story.id not in processed_ids and story.developer_id is None:
-                return story
-        return None
+        eligible = [
+            s
+            for s in all_stories
+            if s.developer_id is None
+            and s.start_date is not None
+            and s.end_date is not None
+            and s.story_point is not None
+        ]
+
+        # Ordenar por schedule_order
+        eligible.sort(
+            key=lambda s: s.schedule_order if s.schedule_order is not None else float("inf")
+        )
+
+        return eligible
 
     def _get_available_developers(
         self,
         start_date: date,
         end_date: date,
         all_stories: List[Story],
-        developers: List[Developer]
+        developers: List[Developer],
     ) -> List[Developer]:
         """
         Retorna desenvolvedores disponíveis no período.
@@ -372,19 +310,19 @@ class AllocateDevelopersUseCase:
         for dev in developers:
             # Buscar histórias deste desenvolvedor
             dev_stories = [
-                s for s in all_stories
-                if s.developer_id == dev.id
-                and s.start_date is not None
-                and s.end_date is not None
+                s
+                for s in all_stories
+                if s.developer_id == dev.id and s.start_date is not None and s.end_date is not None
             ]
 
             # Verificar se há sobreposição
             has_overlap = False
             for story in dev_stories:
                 if self._periods_overlap(
-                    start_date, end_date,
+                    start_date,
+                    end_date,
                     story.start_date,  # type: ignore
-                    story.end_date  # type: ignore
+                    story.end_date,  # type: ignore
                 ):
                     has_overlap = True
                     break
@@ -394,34 +332,7 @@ class AllocateDevelopersUseCase:
 
         return available
 
-    def _calculate_linear_increment(self, attempts: int) -> int:
-        """
-        Calcula incremento linear de dias.
-
-        Formula: attempts + 1
-
-        Args:
-            attempts: Número de tentativas anteriores
-
-        Returns:
-            Número de dias a incrementar
-
-        Examples:
-            >>> _calculate_linear_increment(0)
-            1
-            >>> _calculate_linear_increment(1)
-            2
-            >>> _calculate_linear_increment(3)
-            4
-        """
-        return attempts + 1
-
-    def _adjust_story_dates(
-        self,
-        story: Story,
-        days_to_add: int,
-        config: Configuration
-    ) -> None:
+    def _adjust_story_dates(self, story: Story, days_to_add: int, config: Configuration) -> None:
         """
         Ajusta datas da história adicionando dias ÚTEIS.
 
@@ -437,17 +348,12 @@ class AllocateDevelopersUseCase:
             return
 
         # Usar método do ScheduleCalculator para adicionar dias úteis
-        new_start = self._schedule_calculator.add_workdays(
-            story.start_date,
-            days_to_add
-        )
+        new_start = self._schedule_calculator.add_workdays(story.start_date, days_to_add)
 
         # Calcular nova data de fim mantendo duração
         if story.duration:
-            new_end = self._schedule_calculator.add_workdays(
-                new_start,
-                story.duration
-            )
+            # Duration - 1 porque add_workdays usa offset semantics
+            new_end = self._schedule_calculator.add_workdays(new_start, story.duration - 1)
         else:
             # Se não tem duração, manter intervalo
             if story.end_date is None:
@@ -455,7 +361,8 @@ class AllocateDevelopersUseCase:
 
             # Calcular número de dias úteis entre start e end
             workdays = self._count_workdays(story.start_date, story.end_date)
-            new_end = self._schedule_calculator.add_workdays(new_start, workdays)
+            # Workdays já é a contagem de dias no intervalo, usar -1 para offset
+            new_end = self._schedule_calculator.add_workdays(new_start, max(0, workdays - 1))
 
         story.start_date = new_start
         story.end_date = new_end
@@ -486,13 +393,7 @@ class AllocateDevelopersUseCase:
 
         return count
 
-    def _periods_overlap(
-        self,
-        start1: date,
-        end1: date,
-        start2: date,
-        end2: date
-    ) -> bool:
+    def _periods_overlap(self, start1: date, end1: date, start2: date, end2: date) -> bool:
         """
         Verifica se dois períodos se sobrepõem.
 

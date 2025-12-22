@@ -16,7 +16,14 @@
       "Bash(ping:*)",
       "Bash(dir:*)",
       "Bash(venv\\\\Scripts\\\\python.exe -m pytest:*)",
-      "Bash(.\\\\venv\\\\Scripts\\\\python.exe -m pytest:*)"
+      "Bash(.\\\\venv\\\\Scripts\\\\python.exe -m pytest:*)",
+      "Bash(venvScriptspython.exe -m pytest tests/unit/domain/test_developer_load_balancer.py -v)",
+      "Bash(./venv/Scripts/python.exe -m pytest tests/unit/domain/test_developer_load_balancer.py -v)",
+      "Bash(./.venv/Scripts/python.exe -m pytest tests/unit/domain/test_schedule_calculator.py -v)",
+      "Bash(./.venv/Scripts/python.exe -m black:*)",
+      "Bash(./.venv/Scripts/python.exe -m isort:*)",
+      "Bash(./.venv/Scripts/python.exe -m flake8:*)",
+      "Bash(./.venv/Scripts/python.exe -m mypy:*)"
     ]
   }
 }
