@@ -4,15 +4,18 @@ Controlador de operações de cronograma.
 Orquestra operações relacionadas a cálculo de cronograma e alocação.
 """
 from typing import Optional
+
 from PySide6.QtWidgets import QWidget
 
-from backlog_manager.application.use_cases.schedule.calculate_schedule import (
-    CalculateScheduleUseCase,
-)
 from backlog_manager.application.use_cases.schedule.allocate_developers import (
     AllocateDevelopersUseCase,
 )
+from backlog_manager.application.use_cases.schedule.calculate_schedule import (
+    CalculateScheduleUseCase,
+)
+from backlog_manager.presentation.utils.allocation_worker import AllocationWorker
 from backlog_manager.presentation.utils.message_box import MessageBox
+from backlog_manager.presentation.utils.progress_dialog import ProgressDialog
 
 
 class ScheduleController:
@@ -37,6 +40,10 @@ class ScheduleController:
         self._refresh_callback: Optional[callable] = None
         self._show_loading_callback: Optional[callable] = None
         self._hide_loading_callback: Optional[callable] = None
+
+        # Threading support
+        self._worker: Optional[AllocationWorker] = None
+        self._progress_dialog: Optional[ProgressDialog] = None
 
     def set_parent_widget(self, widget: QWidget) -> None:
         """
@@ -87,43 +94,71 @@ class ScheduleController:
         except Exception as e:
             if self._hide_loading_callback:
                 self._hide_loading_callback()
-            MessageBox.error(
-                self._parent_widget, "Erro ao Calcular Cronograma", str(e)
-            )
+            MessageBox.error(self._parent_widget, "Erro ao Calcular Cronograma", str(e))
 
     def allocate_developers(self) -> None:
         """Aloca desenvolvedores automaticamente e mostra relatório."""
-        try:
-            if self._show_loading_callback:
-                self._show_loading_callback()
+        # 1. Criar ProgressDialog (modal, spinner)
+        self._progress_dialog = ProgressDialog(
+            parent=self._parent_widget,
+            title="Alocando Desenvolvedores",
+            message="Calculando alocações e balanceamento de carga...",
+            cancelable=False,  # Não permite cancelar (por enquanto)
+        )
 
-            # Executar alocação (retorna contagem e warnings)
-            allocated_count, warnings = self._allocate_use_case.execute()
+        # 2. Criar Worker (thread separada)
+        self._worker = AllocationWorker(self._allocate_use_case)
 
-            if self._hide_loading_callback:
-                self._hide_loading_callback()
+        # 3. Conectar signals
+        self._worker.finished.connect(self._on_allocation_finished)
+        self._worker.error.connect(self._on_allocation_error)
 
-            # Mostrar relatório com warnings
-            from backlog_manager.presentation.utils.allocation_report_dialog import (
-                AllocationReportDialog
-            )
+        # 4. Garantir cleanup quando thread terminar
+        self._worker.finished.connect(self._worker.deleteLater)
+        self._worker.error.connect(self._worker.deleteLater)
 
-            dialog = AllocationReportDialog(
-                self._parent_widget,
-                allocated_count,
-                warnings
-            )
-            dialog.exec()
+        # 5. Iniciar worker (executa em background)
+        self._worker.start()
 
-            # Atualizar view
-            self._refresh_view()
+        # 6. Mostrar dialog (modal - bloqueia input mas não trava UI)
+        self._progress_dialog.exec()
 
-        except Exception as e:
-            if self._hide_loading_callback:
-                self._hide_loading_callback()
-            MessageBox.error(
-                self._parent_widget, "Erro ao Alocar Desenvolvedores", str(e)
-            )
+    def _on_allocation_finished(self, allocated_count: int, warnings: list) -> None:
+        """
+        Callback quando alocação termina com sucesso.
+
+        Args:
+            allocated_count: Número de histórias alocadas
+            warnings: Lista de avisos de ociosidade
+        """
+        # Fechar progress dialog
+        if self._progress_dialog:
+            self._progress_dialog.close()
+
+        # Mostrar relatório com resultados
+        from backlog_manager.presentation.utils.allocation_report_dialog import (
+            AllocationReportDialog,
+        )
+
+        dialog = AllocationReportDialog(self._parent_widget, allocated_count, warnings)
+        dialog.exec()
+
+        # Atualizar view
+        self._refresh_view()
+
+    def _on_allocation_error(self, error_message: str) -> None:
+        """
+        Callback quando alocação falha.
+
+        Args:
+            error_message: Mensagem de erro
+        """
+        # Fechar progress dialog
+        if self._progress_dialog:
+            self._progress_dialog.close()
+
+        # Mostrar erro
+        MessageBox.error(self._parent_widget, "Erro ao Alocar Desenvolvedores", error_message)
 
     def _refresh_view(self) -> None:
         """Atualiza a view."""

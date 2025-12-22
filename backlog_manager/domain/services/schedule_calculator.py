@@ -5,6 +5,28 @@ from math import ceil
 from backlog_manager.domain.entities.configuration import Configuration
 from backlog_manager.domain.entities.story import Story
 
+# Feriados nacionais brasileiros (lista fixa)
+BRAZILIAN_HOLIDAYS = frozenset(
+    [
+        date(2025, 1, 1),  # Ano Novo
+        date(2025, 4, 21),  # Tiradentes
+        date(2025, 5, 1),  # Dia do Trabalho
+        date(2025, 9, 7),  # Independência
+        date(2025, 10, 12),  # Nossa Senhora Aparecida
+        date(2025, 11, 2),  # Finados
+        date(2025, 11, 15),  # Proclamação da República
+        date(2025, 12, 25),  # Natal
+        date(2026, 1, 1),  # Ano Novo
+        date(2026, 4, 21),  # Tiradentes
+        date(2026, 5, 1),  # Dia do Trabalho
+        date(2026, 9, 7),  # Independência
+        date(2026, 10, 12),  # Nossa Senhora Aparecida
+        date(2026, 11, 2),  # Finados
+        date(2026, 11, 15),  # Proclamação da República
+        date(2026, 12, 25),  # Natal
+    ]
+)
+
 
 class ScheduleCalculator:
     """
@@ -110,7 +132,7 @@ class ScheduleCalculator:
         """
         Adiciona dias úteis a uma data.
 
-        Considera apenas segunda a sexta como dias úteis.
+        Considera apenas segunda a sexta como dias úteis, excluindo feriados.
 
         Args:
             start: Data inicial
@@ -127,25 +149,38 @@ class ScheduleCalculator:
 
         while days_added < workdays:
             current = current + timedelta(days=1)
-            # 0 = Segunda, 6 = Domingo
-            if current.weekday() < 5:  # Segunda a Sexta
+            if self._is_workday(current):  # Segunda a Sexta E não feriado
                 days_added += 1
 
         return current
 
-    def _ensure_workday(self, date_to_check: date) -> date:
+    def _is_workday(self, date_to_check: date) -> bool:
         """
-        Garante que a data seja um dia útil.
+        Verifica se a data é um dia útil.
 
-        Se a data for fim de semana, avança para a próxima segunda-feira.
+        Dia útil = segunda a sexta E não é feriado nacional.
 
         Args:
             date_to_check: Data a verificar
 
         Returns:
-            Data que é dia útil (segunda a sexta)
+            True se é dia útil
         """
-        while date_to_check.weekday() >= 5:  # Sábado ou Domingo
+        return date_to_check.weekday() < 5 and date_to_check not in BRAZILIAN_HOLIDAYS
+
+    def _ensure_workday(self, date_to_check: date) -> date:
+        """
+        Garante que a data seja um dia útil.
+
+        Se a data for fim de semana ou feriado, avança para o próximo dia útil.
+
+        Args:
+            date_to_check: Data a verificar
+
+        Returns:
+            Data que é dia útil (segunda a sexta, não feriado)
+        """
+        while not self._is_workday(date_to_check):
             date_to_check = date_to_check + timedelta(days=1)
 
         return date_to_check
@@ -158,12 +193,12 @@ class ScheduleCalculator:
             after_date: Data de referência
 
         Returns:
-            Próximo dia útil
+            Próximo dia útil (não fim de semana, não feriado)
         """
         next_day = after_date + timedelta(days=1)
 
-        # Se cair no fim de semana, avançar para segunda
-        while next_day.weekday() >= 5:  # Sábado ou Domingo
+        # Se cair no fim de semana ou feriado, avançar para próximo dia útil
+        while not self._is_workday(next_day):
             next_day = next_day + timedelta(days=1)
 
         return next_day

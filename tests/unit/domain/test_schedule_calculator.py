@@ -257,3 +257,31 @@ class TestScheduleCalculator:
 
         assert next_day == date(2025, 1, 3)  # Sexta
         assert next_day.weekday() == 4  # Sexta-feira
+
+    def test_is_workday_excludes_holidays(self) -> None:
+        """Deve considerar feriados como não úteis."""
+        calculator = ScheduleCalculator()
+
+        # 01/01/2026 é quinta-feira E feriado
+        assert not calculator._is_workday(date(2026, 1, 1))
+
+        # 08/01/2026 é quinta-feira normal
+        assert calculator._is_workday(date(2026, 1, 8))
+
+    def test_add_workdays_skips_holidays(self) -> None:
+        """Deve pular feriados ao adicionar dias úteis."""
+        calculator = ScheduleCalculator()
+
+        # 31/12/2025 (qua) + 2 dias úteis
+        # Deve pular 01/01/2026 (qui - feriado) e fim de semana
+        # Resultado: 05/01/2026 (seg)
+        result = calculator.add_workdays(date(2025, 12, 31), 2)
+        assert result == date(2026, 1, 5)
+
+    def test_ensure_workday_skips_holiday(self) -> None:
+        """Deve avançar para próximo dia útil se data for feriado."""
+        calculator = ScheduleCalculator()
+
+        # 01/01/2026 (qui - feriado) → 02/01/2026 (sex)
+        result = calculator._ensure_workday(date(2026, 1, 1))
+        assert result == date(2026, 1, 2)
