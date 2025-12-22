@@ -36,6 +36,9 @@ class ScheduleCalculator:
         if start_date is None:
             start_date = date.today()
 
+        # Garantir que start_date seja um dia útil
+        start_date = self._ensure_workday(start_date)
+
         # Rastrear última data de fim por desenvolvedor
         dev_last_end_date: dict[str, date] = {}
 
@@ -69,6 +72,9 @@ class ScheduleCalculator:
                         # Começar no próximo dia útil após a dependência terminar
                         dep_next_day = self._next_workday(dep_story.end_date)
                         earliest_start = max(earliest_start, dep_next_day)
+
+            # Garantir que earliest_start seja um dia útil
+            earliest_start = self._ensure_workday(earliest_start)
 
             story.start_date = earliest_start
 
@@ -126,6 +132,23 @@ class ScheduleCalculator:
                 days_added += 1
 
         return current
+
+    def _ensure_workday(self, date_to_check: date) -> date:
+        """
+        Garante que a data seja um dia útil.
+
+        Se a data for fim de semana, avança para a próxima segunda-feira.
+
+        Args:
+            date_to_check: Data a verificar
+
+        Returns:
+            Data que é dia útil (segunda a sexta)
+        """
+        while date_to_check.weekday() >= 5:  # Sábado ou Domingo
+            date_to_check = date_to_check + timedelta(days=1)
+
+        return date_to_check
 
     def _next_workday(self, after_date: date) -> date:
         """

@@ -189,9 +189,10 @@ class TestScheduleCalculator:
 
         result = calculator.calculate([story], config, start_date)
 
-        # Deve começar no sábado (como especificado)
-        # mas os dias úteis começam a contar só na segunda
-        assert result[0].start_date == date(2025, 1, 4)
+        # Sábado (04/01) deve ser ajustado para segunda-feira (06/01)
+        assert result[0].start_date == date(2025, 1, 6)  # Segunda
+        # Duração de 4 dias: seg (06), ter (07), qua (08), qui (09)
+        assert result[0].end_date == date(2025, 1, 9)  # Quinta
 
     def test_performance_large_backlog(self) -> None:
         """Deve calcular cronograma de backlog grande rapidamente."""
