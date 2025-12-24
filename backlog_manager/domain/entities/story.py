@@ -17,7 +17,7 @@ class Story:
 
     Attributes:
         id: Identificador único (gerado automaticamente)
-        feature: Agrupamento funcional da história
+        component: Agrupamento funcional da história
         name: Nome descritivo da história
         story_point: Esforço de implementação (3, 5, 8 ou 13)
         status: Estado atual no ciclo de vida
@@ -31,7 +31,7 @@ class Story:
     """
 
     id: str
-    feature: str
+    component: str
     name: str
     story_point: StoryPoint
     status: StoryStatus = StoryStatus.BACKLOG
@@ -57,8 +57,8 @@ class Story:
         if not self.id or not self.id.strip():
             raise ValueError("ID da história não pode ser vazio")
 
-        if not self.feature or not self.feature.strip():
-            raise ValueError("Feature não pode ser vazia")
+        if not self.component or not self.component.strip():
+            raise ValueError("Component não pode ser vazia")
 
         if not self.name or not self.name.strip():
             raise ValueError("Nome da história não pode ser vazio")

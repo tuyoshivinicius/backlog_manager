@@ -25,7 +25,7 @@ def sample_story():
     """História de exemplo."""
     return Story(
         id="US-001",
-        feature="Autenticação",
+        component="Autenticação",
         name="Login de usuário",
         status=StoryStatus.BACKLOG,
         priority=0,
@@ -49,7 +49,7 @@ def test_save_and_find_by_id(repository, sample_story):
 
     assert found is not None
     assert found.id == "US-001"
-    assert found.feature == "Autenticação"
+    assert found.component == "Autenticação"
     assert found.name == "Login de usuário"
     assert found.story_point.value == 5
 
@@ -58,7 +58,7 @@ def test_find_all_returns_ordered_by_priority(repository):
     """Deve retornar histórias ordenadas por prioridade."""
     story1 = Story(
         id="US-001",
-        feature="F1",
+        component="F1",
         name="S1",
         status=StoryStatus.BACKLOG,
         priority=2,
@@ -68,7 +68,7 @@ def test_find_all_returns_ordered_by_priority(repository):
     )
     story2 = Story(
         id="US-002",
-        feature="F1",
+        component="F1",
         name="S2",
         status=StoryStatus.BACKLOG,
         priority=0,
@@ -78,7 +78,7 @@ def test_find_all_returns_ordered_by_priority(repository):
     )
     story3 = Story(
         id="US-003",
-        feature="F1",
+        component="F1",
         name="S3",
         status=StoryStatus.BACKLOG,
         priority=1,
@@ -135,7 +135,7 @@ def test_saves_dependencies_as_json(repository):
     """Deve serializar dependências como JSON."""
     story = Story(
         id="US-002",
-        feature="F1",
+        component="F1",
         name="S2",
         status=StoryStatus.BACKLOG,
         priority=0,
@@ -154,7 +154,7 @@ def test_saves_dates_correctly(repository):
     """Deve salvar e recuperar datas corretamente."""
     story = Story(
         id="US-001",
-        feature="F1",
+        component="F1",
         name="S1",
         status=StoryStatus.BACKLOG,
         priority=0,

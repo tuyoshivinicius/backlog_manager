@@ -27,7 +27,8 @@
       "Bash(./.venv/Scripts/python.exe -m pytest tests/unit/infrastructure/excel/ -v)",
       "Bash(./.venv/Scripts/python.exe -m pytest tests/ -v --tb=short)",
       "Bash(./.venv/Scripts/python.exe -m pytest tests/integration/infrastructure/excel/test_openpyxl_excel_service.py -v)",
-      "Bash(./.venv/Scripts/python.exe -m pytest tests/ -x --tb=line)"
+      "Bash(./.venv/Scripts/python.exe -m pytest tests/ -x --tb=line)",
+      "Bash(tree:*)"
     ]
   }
 }

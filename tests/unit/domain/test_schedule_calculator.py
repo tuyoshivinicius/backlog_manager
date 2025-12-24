@@ -27,7 +27,7 @@ class TestScheduleCalculator:
 
         # Velocidade = 21/15 = 1.4 SP/dia
         # Story de 8 SP = ceil(8/1.4) = ceil(5.71) = 6 dias
-        story = Story(id="S1", feature="Test", name="Test", story_point=StoryPoint(8))
+        story = Story(id="S1", component="Test", name="Test", story_point=StoryPoint(8))
 
         result = calculator.calculate([story], config)
 
@@ -47,7 +47,7 @@ class TestScheduleCalculator:
         ]
 
         for sp, expected_duration in test_cases:
-            story = Story(id=f"S{sp}", feature="Test", name="Test", story_point=StoryPoint(sp))
+            story = Story(id=f"S{sp}", component="Test", name="Test", story_point=StoryPoint(sp))
             result = calculator.calculate([story], config)
             assert (
                 result[0].duration == expected_duration
@@ -59,7 +59,7 @@ class TestScheduleCalculator:
         # Velocidade muito alta
         config = Configuration(story_points_per_sprint=1000, workdays_per_sprint=10)
 
-        story = Story(id="S1", feature="Test", name="Test", story_point=StoryPoint(3))
+        story = Story(id="S1", component="Test", name="Test", story_point=StoryPoint(3))
 
         result = calculator.calculate([story], config)
 
@@ -71,7 +71,7 @@ class TestScheduleCalculator:
         config = Configuration()
         start_date = date(2025, 1, 6)  # Segunda-feira
 
-        story = Story(id="S1", feature="Test", name="Test", story_point=StoryPoint(5))
+        story = Story(id="S1", component="Test", name="Test", story_point=StoryPoint(5))
 
         result = calculator.calculate([story], config, start_date)
 
@@ -86,7 +86,7 @@ class TestScheduleCalculator:
         start_date = date(2025, 1, 3)  # Sexta-feira
 
         # História com duração de 4 dias úteis (5 SP / 1.4 = 3.57, ceil = 4)
-        story = Story(id="S1", feature="Test", name="Test", story_point=StoryPoint(5))
+        story = Story(id="S1", component="Test", name="Test", story_point=StoryPoint(5))
 
         result = calculator.calculate([story], config, start_date)
 
@@ -102,10 +102,10 @@ class TestScheduleCalculator:
         start_date = date(2025, 1, 6)  # Segunda
 
         story1 = Story(
-            id="S1", feature="Test", name="Test1", story_point=StoryPoint(5), developer_id="DEV1"
+            id="S1", component="Test", name="Test1", story_point=StoryPoint(5), developer_id="DEV1"
         )
         story2 = Story(
-            id="S2", feature="Test", name="Test2", story_point=StoryPoint(5), developer_id="DEV1"
+            id="S2", component="Test", name="Test2", story_point=StoryPoint(5), developer_id="DEV1"
         )
 
         result = calculator.calculate([story1, story2], config, start_date)
@@ -125,10 +125,10 @@ class TestScheduleCalculator:
         start_date = date(2025, 1, 6)  # Segunda
 
         story1 = Story(
-            id="S1", feature="Test", name="Test1", story_point=StoryPoint(5), developer_id="DEV1"
+            id="S1", component="Test", name="Test1", story_point=StoryPoint(5), developer_id="DEV1"
         )
         story2 = Story(
-            id="S2", feature="Test", name="Test2", story_point=StoryPoint(5), developer_id="DEV2"
+            id="S2", component="Test", name="Test2", story_point=StoryPoint(5), developer_id="DEV2"
         )
 
         result = calculator.calculate([story1, story2], config, start_date)
@@ -147,8 +147,8 @@ class TestScheduleCalculator:
         config = Configuration()
         start_date = date(2025, 1, 6)
 
-        story1 = Story(id="S1", feature="Test", name="Test1", story_point=StoryPoint(5))
-        story2 = Story(id="S2", feature="Test", name="Test2", story_point=StoryPoint(5))
+        story1 = Story(id="S1", component="Test", name="Test1", story_point=StoryPoint(5))
+        story2 = Story(id="S2", component="Test", name="Test2", story_point=StoryPoint(5))
 
         result = calculator.calculate([story1, story2], config, start_date)
 
@@ -163,11 +163,11 @@ class TestScheduleCalculator:
         start_date = date(2025, 1, 6)
 
         story1 = Story(
-            id="S1", feature="Test", name="Test1", story_point=StoryPoint(5), developer_id="DEV1"
+            id="S1", component="Test", name="Test1", story_point=StoryPoint(5), developer_id="DEV1"
         )
-        story2 = Story(id="S2", feature="Test", name="Test2", story_point=StoryPoint(5))
+        story2 = Story(id="S2", component="Test", name="Test2", story_point=StoryPoint(5))
         story3 = Story(
-            id="S3", feature="Test", name="Test3", story_point=StoryPoint(5), developer_id="DEV1"
+            id="S3", component="Test", name="Test3", story_point=StoryPoint(5), developer_id="DEV1"
         )
 
         result = calculator.calculate([story1, story2, story3], config, start_date)
@@ -185,7 +185,7 @@ class TestScheduleCalculator:
         config = Configuration()
         start_date = date(2025, 1, 4)  # Sábado
 
-        story = Story(id="S1", feature="Test", name="Test", story_point=StoryPoint(5))
+        story = Story(id="S1", component="Test", name="Test", story_point=StoryPoint(5))
 
         result = calculator.calculate([story], config, start_date)
 
@@ -205,7 +205,7 @@ class TestScheduleCalculator:
         for i in range(100):
             story = Story(
                 id=f"S{i}",
-                feature="Test",
+                component="Test",
                 name=f"Test{i}",
                 story_point=StoryPoint(5),
                 developer_id=f"DEV{i % 10}",  # 10 desenvolvedores
@@ -228,9 +228,9 @@ class TestScheduleCalculator:
         config = Configuration()
         start_date = date(2025, 1, 6)
 
-        story1 = Story(id="S1", feature="Test", name="Test1", story_point=StoryPoint(5))
-        story2 = Story(id="S2", feature="Test", name="Test2", story_point=StoryPoint(8))
-        story3 = Story(id="S3", feature="Test", name="Test3", story_point=StoryPoint(3))
+        story1 = Story(id="S1", component="Test", name="Test1", story_point=StoryPoint(5))
+        story2 = Story(id="S2", component="Test", name="Test2", story_point=StoryPoint(8))
+        story3 = Story(id="S3", component="Test", name="Test3", story_point=StoryPoint(3))
 
         result = calculator.calculate([story1, story2, story3], config, start_date)
 

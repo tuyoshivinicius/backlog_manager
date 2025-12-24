@@ -28,7 +28,7 @@ def test_commit_persists_changes(tmp_path):
 
     story = Story(
         id="US-001",
-        feature="F1",
+        component="F1",
         name="S1",
         status=StoryStatus.BACKLOG,
         priority=0,
@@ -61,7 +61,7 @@ def test_rollback_discards_changes(tmp_path):
 
     story = Story(
         id="US-001",
-        feature="F1",
+        component="F1",
         name="S1",
         status=StoryStatus.BACKLOG,
         priority=0,
@@ -94,7 +94,7 @@ def test_exception_triggers_automatic_rollback(tmp_path):
 
     story = Story(
         id="US-001",
-        feature="F1",
+        component="F1",
         name="S1",
         status=StoryStatus.BACKLOG,
         priority=0,

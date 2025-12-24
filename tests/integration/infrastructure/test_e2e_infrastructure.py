@@ -30,7 +30,7 @@ def test_full_flow_excel_import_to_database_to_export(tmp_path):
     # 1. Criar Excel de importação
     wb = Workbook()
     ws = wb.active
-    ws.append(["ID", "Feature", "Nome", "StoryPoint", "Deps"])
+    ws.append(["ID", "Component", "Nome", "StoryPoint", "Deps"])
     ws.append(["US-001", "Autenticação", "Login", 5, ""])
     ws.append(["US-002", "Autenticação", "Logout", 3, ""])
     ws.append(["US-003", "Dashboard", "Exibir métricas", 8, ""])
@@ -65,7 +65,7 @@ def test_full_flow_excel_import_to_database_to_export(tmp_path):
 
     assert len(recovered_stories) == 3
     assert recovered_stories[0].id == "US-001"
-    assert recovered_stories[0].feature == "Autenticação"
+    assert recovered_stories[0].component == "Autenticação"
     assert recovered_stories[0].name == "Login"
     assert recovered_stories[0].story_point.value == 5
 
@@ -85,7 +85,7 @@ def test_full_flow_excel_import_to_database_to_export(tmp_path):
     # Validar cabeçalho
     assert ws_export.cell(1, 1).value == "Prioridade"
     assert ws_export.cell(1, 2).value == "ID"
-    assert ws_export.cell(1, 3).value == "Feature"
+    assert ws_export.cell(1, 3).value == "Component"
 
     # Validar dados
     assert ws_export.cell(2, 2).value == "US-001"
@@ -111,7 +111,7 @@ def test_transaction_rollback_on_error(tmp_path):
 
     story1 = Story(
         id="US-001",
-        feature="F1",
+        component="F1",
         name="S1",
         status=StoryStatus.BACKLOG,
         priority=0,
@@ -159,7 +159,7 @@ def test_developer_and_story_relationship(tmp_path):
     # Criar história alocada ao desenvolvedor
     story = Story(
         id="US-001",
-        feature="F1",
+        component="F1",
         name="S1",
         status=StoryStatus.BACKLOG,
         priority=0,

@@ -19,7 +19,7 @@ class OpenpyxlExcelService(ExcelService):
     Implementação do serviço de Excel usando openpyxl.
 
     Responsabilidades:
-    - Importar histórias de planilha Excel (5 colunas: ID, Feature, Nome, StoryPoint, Deps)
+    - Importar histórias de planilha Excel (5 colunas: ID, Component, Nome, StoryPoint, Deps)
     - Exportar backlog para Excel com formatação
     - Validar formato e dados
     - Detectar e ignorar IDs duplicados
@@ -27,13 +27,13 @@ class OpenpyxlExcelService(ExcelService):
     """
 
     # Colunas esperadas no import (NOVO: 5 colunas)
-    IMPORT_COLUMNS = ["ID", "Feature", "Nome", "StoryPoint", "Deps"]
+    IMPORT_COLUMNS = ["ID", "Component", "Nome", "StoryPoint", "Deps"]
 
     # Colunas do export
     EXPORT_COLUMNS = [
         "Prioridade",
         "ID",
-        "Feature",
+        "Component",
         "Nome",
         "Status",
         "Desenvolvedor",
@@ -48,7 +48,7 @@ class OpenpyxlExcelService(ExcelService):
     # Mapeia campo normalizado → aliases aceitos
     COLUMN_ALIASES = {
         "id": ["id"],
-        "feature": ["feature"],
+        "component": ["component"],
         "nome": ["nome", "name"],
         "story_point": ["storypoint", "sp"],
         "deps": ["deps", "dependencias", "dependências"],
@@ -66,7 +66,7 @@ class OpenpyxlExcelService(ExcelService):
 
         Returns:
             Dict mapeando campo normalizado → índice da coluna (0-based)
-            Ex: {"id": 1, "feature": 2, "story_point": 7}
+            Ex: {"id": 1, "component": 2, "story_point": 7}
 
         Raises:
             ValueError: Se colunas obrigatórias ausentes
@@ -89,7 +89,7 @@ class OpenpyxlExcelService(ExcelService):
                     break
 
         # Validar colunas obrigatórias
-        required_fields = ["id", "feature", "nome"]
+        required_fields = ["id", "component", "nome"]
         missing_fields = [field for field in required_fields if field not in column_map]
 
         if missing_fields:
@@ -136,7 +136,7 @@ class OpenpyxlExcelService(ExcelService):
 
         Returns:
             Set de campos presentes
-            Ex: {"id", "feature", "nome", "story_point", "deps", "status"}
+            Ex: {"id", "component", "nome", "story_point", "deps", "status"}
         """
         return set(column_map.keys())
 
@@ -149,8 +149,8 @@ class OpenpyxlExcelService(ExcelService):
         Importa histórias de arquivo Excel com mapeamento flexível de colunas.
 
         Suporta dois formatos:
-        - Legado (5 colunas): ID, Feature, Nome, StoryPoint, Deps
-        - Completo (11 colunas): Prioridade, ID, Feature, Nome, Status, Desenvolvedor, Dependências, SP, Início, Fim, Duração
+        - Legado (5 colunas): ID, Component, Nome, StoryPoint, Deps
+        - Completo (11 colunas): Prioridade, ID, Component, Nome, Status, Desenvolvedor, Dependências, SP, Início, Fim, Duração
 
         Mapeamento case-insensitive de aliases: StoryPoint/SP, Deps/Dependências, etc.
 
@@ -202,7 +202,7 @@ class OpenpyxlExcelService(ExcelService):
 
             # Extrair valores usando mapeamento flexível
             id_value = self._extract_value(row, column_map, "id")
-            feature = self._extract_value(row, column_map, "feature")
+            component = self._extract_value(row, column_map, "component")
             name = self._extract_value(row, column_map, "nome")
             sp_value = self._extract_value(row, column_map, "story_point")
             deps_value = self._extract_value(row, column_map, "deps")
@@ -210,10 +210,10 @@ class OpenpyxlExcelService(ExcelService):
             desenvolvedor = self._extract_value(row, column_map, "desenvolvedor")
             prioridade = self._extract_value(row, column_map, "prioridade")
 
-            # Validar campos obrigatórios (Feature e Nome)
-            if not feature or str(feature).strip() == "":
+            # Validar campos obrigatórios (Component e Nome)
+            if not component or str(component).strip() == "":
                 stats["ignoradas_invalidas"] += 1
-                stats["warnings"].append(f"Linha {row_num}: Feature vazio - linha ignorada")
+                stats["warnings"].append(f"Linha {row_num}: Component vazio - linha ignorada")
                 continue
 
             if not name or str(name).strip() == "":
@@ -279,7 +279,7 @@ class OpenpyxlExcelService(ExcelService):
             # Criar DTO temporário (dependências serão processadas depois)
             story_dto = StoryDTO(
                 id=story_id,
-                feature=str(feature).strip(),
+                component=str(component).strip(),
                 name=str(name).strip(),
                 status=status_str,
                 priority=priority_value,
@@ -406,7 +406,7 @@ class OpenpyxlExcelService(ExcelService):
         for row_num, story in enumerate(stories, start=2):
             sheet.cell(row=row_num, column=1).value = story.priority
             sheet.cell(row=row_num, column=2).value = story.id
-            sheet.cell(row=row_num, column=3).value = story.feature
+            sheet.cell(row=row_num, column=3).value = story.component
             sheet.cell(row=row_num, column=4).value = story.name
             sheet.cell(row=row_num, column=5).value = story.status
             sheet.cell(row=row_num, column=6).value = story.developer_id or ""

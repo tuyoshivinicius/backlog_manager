@@ -121,7 +121,7 @@ class DependenciesDialog(QDialog):
                 continue
 
             # Criar item com checkbox
-            text = f"{story.id} - {story.feature} - {story.name}"
+            text = f"{story.id} - {story.component} - {story.name}"
             item = QListWidgetItem(text)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
 

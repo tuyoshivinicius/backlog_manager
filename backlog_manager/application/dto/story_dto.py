@@ -14,7 +14,7 @@ class StoryDTO:
     """
 
     id: str
-    feature: str
+    component: str
     name: str
     status: str
     priority: int

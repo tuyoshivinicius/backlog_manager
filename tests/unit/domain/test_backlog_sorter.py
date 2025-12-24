@@ -21,7 +21,7 @@ class TestBacklogSorter:
     def test_sort_single_story(self) -> None:
         """Deve retornar história única sem mudanças."""
         sorter = BacklogSorter()
-        story = Story(id="S1", feature="Test", name="Test", story_point=StoryPoint(5))
+        story = Story(id="S1", component="Test", name="Test", story_point=StoryPoint(5))
 
         result = sorter.sort([story])
 
@@ -31,9 +31,9 @@ class TestBacklogSorter:
     def test_sort_stories_no_dependencies(self) -> None:
         """Deve ordenar por prioridade quando não há dependências."""
         sorter = BacklogSorter()
-        story1 = Story(id="S1", feature="Test", name="Test1", story_point=StoryPoint(5), priority=3)
-        story2 = Story(id="S2", feature="Test", name="Test2", story_point=StoryPoint(5), priority=1)
-        story3 = Story(id="S3", feature="Test", name="Test3", story_point=StoryPoint(5), priority=2)
+        story1 = Story(id="S1", component="Test", name="Test1", story_point=StoryPoint(5), priority=3)
+        story2 = Story(id="S2", component="Test", name="Test2", story_point=StoryPoint(5), priority=1)
+        story3 = Story(id="S3", component="Test", name="Test3", story_point=StoryPoint(5), priority=2)
 
         result = sorter.sort([story1, story2, story3])
 
@@ -44,9 +44,9 @@ class TestBacklogSorter:
     def test_sort_linear_dependency(self) -> None:
         """Deve ordenar respeitando dependência linear."""
         sorter = BacklogSorter()
-        story1 = Story(id="S1", feature="Test", name="Test1", story_point=StoryPoint(5), dependencies=["S2"])
-        story2 = Story(id="S2", feature="Test", name="Test2", story_point=StoryPoint(5), dependencies=["S3"])
-        story3 = Story(id="S3", feature="Test", name="Test3", story_point=StoryPoint(5))
+        story1 = Story(id="S1", component="Test", name="Test1", story_point=StoryPoint(5), dependencies=["S2"])
+        story2 = Story(id="S2", component="Test", name="Test2", story_point=StoryPoint(5), dependencies=["S3"])
+        story3 = Story(id="S3", component="Test", name="Test3", story_point=StoryPoint(5))
 
         result = sorter.sort([story1, story2, story3])
 
@@ -62,9 +62,9 @@ class TestBacklogSorter:
         sorter = BacklogSorter()
         # S1 depende de S2 e S3
         # S2 e S3 não têm dependências
-        story1 = Story(id="S1", feature="Test", name="Test1", story_point=StoryPoint(5), dependencies=["S2", "S3"])
-        story2 = Story(id="S2", feature="Test", name="Test2", story_point=StoryPoint(5), priority=2)
-        story3 = Story(id="S3", feature="Test", name="Test3", story_point=StoryPoint(5), priority=1)
+        story1 = Story(id="S1", component="Test", name="Test1", story_point=StoryPoint(5), dependencies=["S2", "S3"])
+        story2 = Story(id="S2", component="Test", name="Test2", story_point=StoryPoint(5), priority=2)
+        story3 = Story(id="S3", component="Test", name="Test3", story_point=StoryPoint(5), priority=1)
 
         result = sorter.sort([story1, story2, story3])
 
@@ -81,10 +81,10 @@ class TestBacklogSorter:
         #     S1 → S3
         #     S2 → S3
         #     S3 → S4
-        story1 = Story(id="S1", feature="Test", name="Test1", story_point=StoryPoint(5), dependencies=["S3"])
-        story2 = Story(id="S2", feature="Test", name="Test2", story_point=StoryPoint(5), dependencies=["S3"])
-        story3 = Story(id="S3", feature="Test", name="Test3", story_point=StoryPoint(5), dependencies=["S4"])
-        story4 = Story(id="S4", feature="Test", name="Test4", story_point=StoryPoint(5))
+        story1 = Story(id="S1", component="Test", name="Test1", story_point=StoryPoint(5), dependencies=["S3"])
+        story2 = Story(id="S2", component="Test", name="Test2", story_point=StoryPoint(5), dependencies=["S3"])
+        story3 = Story(id="S3", component="Test", name="Test3", story_point=StoryPoint(5), dependencies=["S4"])
+        story4 = Story(id="S4", component="Test", name="Test4", story_point=StoryPoint(5))
 
         result = sorter.sort([story1, story2, story3, story4])
 
@@ -100,9 +100,9 @@ class TestBacklogSorter:
         sorter = BacklogSorter()
         # S1 e S2 ambos dependem de S3
         # S1 tem prioridade maior que S2
-        story1 = Story(id="S1", feature="Test", name="Test1", story_point=StoryPoint(5), dependencies=["S3"], priority=2)
-        story2 = Story(id="S2", feature="Test", name="Test2", story_point=StoryPoint(5), dependencies=["S3"], priority=1)
-        story3 = Story(id="S3", feature="Test", name="Test3", story_point=StoryPoint(5))
+        story1 = Story(id="S1", component="Test", name="Test1", story_point=StoryPoint(5), dependencies=["S3"], priority=2)
+        story2 = Story(id="S2", component="Test", name="Test2", story_point=StoryPoint(5), dependencies=["S3"], priority=1)
+        story3 = Story(id="S3", component="Test", name="Test3", story_point=StoryPoint(5))
 
         result = sorter.sort([story1, story2, story3])
 
@@ -113,8 +113,8 @@ class TestBacklogSorter:
     def test_reject_cyclic_dependency(self) -> None:
         """Deve lançar exceção para dependências cíclicas."""
         sorter = BacklogSorter()
-        story1 = Story(id="S1", feature="Test", name="Test1", story_point=StoryPoint(5), dependencies=["S2"])
-        story2 = Story(id="S2", feature="Test", name="Test2", story_point=StoryPoint(5), dependencies=["S1"])
+        story1 = Story(id="S1", component="Test", name="Test1", story_point=StoryPoint(5), dependencies=["S2"])
+        story2 = Story(id="S2", component="Test", name="Test2", story_point=StoryPoint(5), dependencies=["S1"])
 
         with pytest.raises(CyclicDependencyException):
             sorter.sort([story1, story2])
@@ -122,9 +122,9 @@ class TestBacklogSorter:
     def test_reject_indirect_cycle(self) -> None:
         """Deve detectar ciclos indiretos."""
         sorter = BacklogSorter()
-        story1 = Story(id="S1", feature="Test", name="Test1", story_point=StoryPoint(5), dependencies=["S2"])
-        story2 = Story(id="S2", feature="Test", name="Test2", story_point=StoryPoint(5), dependencies=["S3"])
-        story3 = Story(id="S3", feature="Test", name="Test3", story_point=StoryPoint(5), dependencies=["S1"])
+        story1 = Story(id="S1", component="Test", name="Test1", story_point=StoryPoint(5), dependencies=["S2"])
+        story2 = Story(id="S2", component="Test", name="Test2", story_point=StoryPoint(5), dependencies=["S3"])
+        story3 = Story(id="S3", component="Test", name="Test3", story_point=StoryPoint(5), dependencies=["S1"])
 
         with pytest.raises(CyclicDependencyException):
             sorter.sort([story1, story2, story3])
@@ -139,7 +139,7 @@ class TestBacklogSorter:
             deps = [f"S{i+1}"] if i < 99 else []
             story = Story(
                 id=f"S{i}",
-                feature="Test",
+                component="Test",
                 name=f"Test{i}",
                 story_point=StoryPoint(5),
                 dependencies=deps,
@@ -158,7 +158,7 @@ class TestBacklogSorter:
         """Deve lidar com dependências em histórias que não existem na lista."""
         sorter = BacklogSorter()
         # S1 depende de S2, mas S2 não está na lista
-        story1 = Story(id="S1", feature="Test", name="Test1", story_point=StoryPoint(5), dependencies=["S2"])
+        story1 = Story(id="S1", component="Test", name="Test1", story_point=StoryPoint(5), dependencies=["S2"])
 
         # Não deve lançar exceção, apenas não conseguir resolver a dependência
         result = sorter.sort([story1])
@@ -170,9 +170,9 @@ class TestBacklogSorter:
     def test_multiple_stories_same_priority_no_deps(self) -> None:
         """Histórias com mesma prioridade e sem dependências mantêm ordem."""
         sorter = BacklogSorter()
-        story1 = Story(id="S1", feature="Test", name="Test1", story_point=StoryPoint(5), priority=1)
-        story2 = Story(id="S2", feature="Test", name="Test2", story_point=StoryPoint(5), priority=1)
-        story3 = Story(id="S3", feature="Test", name="Test3", story_point=StoryPoint(5), priority=1)
+        story1 = Story(id="S1", component="Test", name="Test1", story_point=StoryPoint(5), priority=1)
+        story2 = Story(id="S2", component="Test", name="Test2", story_point=StoryPoint(5), priority=1)
+        story3 = Story(id="S3", component="Test", name="Test3", story_point=StoryPoint(5), priority=1)
 
         result = sorter.sort([story1, story2, story3])
 

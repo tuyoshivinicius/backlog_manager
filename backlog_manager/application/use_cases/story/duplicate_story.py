@@ -54,7 +54,7 @@ class DuplicateStoryUseCase:
         # 3. Copiar dados e resetar campos
         new_story = Story(
             id=new_id,
-            feature=original.feature,
+            component=original.component,
             name=f"{original.name} (Cópia)",
             story_point=original.story_point,
             status=StoryStatus.BACKLOG,  # Resetar para BACKLOG

@@ -89,7 +89,7 @@ class EditableTableWidget(QTableWidget):
 
     # Mapeamento de índice para nome de campo
     COLUMN_TO_FIELD = {
-        COL_FEATURE: "feature",
+        COL_FEATURE: "component",
         COL_NAME: "name",
         COL_STATUS: "status",
         COL_DEVELOPER: "developer_id",
@@ -125,7 +125,7 @@ class EditableTableWidget(QTableWidget):
         headers = [
             "Prioridade",
             "ID",
-            "Feature",
+            "Component",
             "Nome",
             "Status",
             "Desenvolvedor",
@@ -203,8 +203,8 @@ class EditableTableWidget(QTableWidget):
         id_item.setFlags(id_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
         self.setItem(row, self.COL_ID, id_item)
 
-        # Feature (editável)
-        self.setItem(row, self.COL_FEATURE, QTableWidgetItem(story.feature))
+        # Component (editável)
+        self.setItem(row, self.COL_FEATURE, QTableWidgetItem(story.component))
 
         # Nome (editável)
         self.setItem(row, self.COL_NAME, QTableWidgetItem(story.name))

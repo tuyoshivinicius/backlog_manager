@@ -79,10 +79,10 @@ class StoryFormDialog(QDialog):
             self._id_label = QLabel(self._story.id if self._story else "")
             form_layout.addRow("ID:", self._id_label)
 
-        # Feature
-        self._feature_input = QLineEdit()
-        self._feature_input.setPlaceholderText("Ex: Login, Dashboard")
-        form_layout.addRow("Feature*:", self._feature_input)
+        # Component
+        self._component_input = QLineEdit()
+        self._component_input.setPlaceholderText("Ex: Login, Dashboard")
+        form_layout.addRow("Component*:", self._component_input)
 
         # Nome
         self._name_input = QLineEdit()
@@ -188,7 +188,7 @@ class StoryFormDialog(QDialog):
         self.setLayout(main_layout)
 
         # Conectar validações
-        self._feature_input.textChanged.connect(self._validate)
+        self._component_input.textChanged.connect(self._validate)
         self._name_input.textChanged.connect(self._validate)
 
         # Validação inicial
@@ -201,7 +201,7 @@ class StoryFormDialog(QDialog):
         Args:
             story: História a editar
         """
-        self._feature_input.setText(story.feature)
+        self._component_input.setText(story.component)
         self._name_input.setText(story.name)
 
         # Story Point
@@ -237,7 +237,7 @@ class StoryFormDialog(QDialog):
         # Criar DTO temporário para a história atual (necessário para o dialog)
         current_story = self._story if self._story else StoryDTO(
             id="TEMP",
-            feature=self._feature_input.text().strip(),
+            component=self._component_input.text().strip(),
             name=self._name_input.text().strip(),
             story_point=int(self._story_point_combo.currentText()),
             status=self._status_combo.currentText(),
@@ -267,13 +267,13 @@ class StoryFormDialog(QDialog):
 
     def _validate(self) -> None:
         """Valida campos do formulário."""
-        feature = self._feature_input.text().strip()
+        component = self._component_input.text().strip()
         name = self._name_input.text().strip()
 
         errors = []
 
-        if not feature:
-            errors.append("Feature é obrigatória")
+        if not component:
+            errors.append("Component é obrigatória")
         if not name:
             errors.append("Nome é obrigatório")
         elif len(name) < 5:
@@ -296,7 +296,7 @@ class StoryFormDialog(QDialog):
         # Coletar dados
         print("\n1. Coletando dados do formulário...")
         form_data = {
-            "feature": self._feature_input.text().strip(),
+            "component": self._component_input.text().strip(),
             "name": self._name_input.text().strip(),
             "story_point": int(self._story_point_combo.currentText()),
             "status": self._status_combo.currentText(),

@@ -12,7 +12,7 @@ class CreateStoryUseCase:
     Caso de uso para criar nova história.
 
     Responsabilidades:
-    - Gerar ID automático baseado na feature (ex: S1, S2 para "Solicitação")
+    - Gerar ID automático baseado na component (ex: S1, S2 para "Solicitação")
     - Definir prioridade inicial (última posição)
     - Criar e persistir história
     """
@@ -32,7 +32,7 @@ class CreateStoryUseCase:
 
         Args:
             story_data: Dicionário com dados da história
-                - feature: str (obrigatório)
+                - component: str (obrigatório)
                 - name: str (obrigatório)
                 - story_point: int (3, 5, 8 ou 13)
                 - dependencies: List[str] (opcional)
@@ -43,15 +43,15 @@ class CreateStoryUseCase:
         Raises:
             ValueError: Se dados inválidos ou story point inválido
         """
-        # 1. Gerar ID baseado na feature (primeira letra + número incremental)
+        # 1. Gerar ID baseado na component (primeira letra + número incremental)
         all_stories = self._story_repository.find_all()
 
-        # Obter primeira letra da feature (maiúscula)
-        feature = story_data["feature"].strip()
-        if not feature:
-            raise ValueError("Feature não pode ser vazia")
+        # Obter primeira letra da component (maiúscula)
+        component = story_data["component"].strip()
+        if not component:
+            raise ValueError("Component não pode ser vazia")
 
-        prefix = feature[0].upper()
+        prefix = component[0].upper()
 
         # Encontrar maior número com o mesmo prefixo
         max_number = 0
@@ -77,7 +77,7 @@ class CreateStoryUseCase:
         # 3. Criar entidade Story
         story = Story(
             id=story_id,
-            feature=story_data["feature"],
+            component=story_data["component"],
             name=story_data["name"],
             story_point=StoryPoint(story_data["story_point"]),
             status=StoryStatus.BACKLOG,

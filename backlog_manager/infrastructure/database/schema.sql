@@ -5,7 +5,7 @@
 -- Tabela de Histórias (Stories)
 CREATE TABLE IF NOT EXISTS stories (
     id TEXT PRIMARY KEY,
-    feature TEXT NOT NULL,
+    component TEXT NOT NULL,
     name TEXT NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('BACKLOG', 'EXECUÇÃO', 'TESTES', 'CONCLUÍDO', 'IMPEDIDO')),
     priority INTEGER NOT NULL DEFAULT 0,
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS stories (
 CREATE INDEX IF NOT EXISTS idx_stories_priority ON stories(priority);
 CREATE INDEX IF NOT EXISTS idx_stories_status ON stories(status);
 CREATE INDEX IF NOT EXISTS idx_stories_developer ON stories(developer_id);
-CREATE INDEX IF NOT EXISTS idx_stories_feature ON stories(feature);
+CREATE INDEX IF NOT EXISTS idx_stories_component ON stories(component);
 
 -- Tabela de Desenvolvedores (Developers)
 CREATE TABLE IF NOT EXISTS developers (

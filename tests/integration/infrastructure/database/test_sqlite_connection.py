@@ -100,4 +100,4 @@ def test_creates_indexes(temp_db):
     assert "idx_stories_priority" in indexes
     assert "idx_stories_status" in indexes
     assert "idx_stories_developer" in indexes
-    assert "idx_stories_feature" in indexes
+    assert "idx_stories_component" in indexes

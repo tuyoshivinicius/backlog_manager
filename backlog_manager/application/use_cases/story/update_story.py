@@ -36,7 +36,7 @@ class UpdateStoryUseCase:
         Args:
             story_id: ID da história
             updates: Dicionário com campos a atualizar
-                Campos possíveis: feature, name, story_point, status,
+                Campos possíveis: component, name, story_point, status,
                 priority, developer_id, dependencies
 
         Returns:
@@ -55,8 +55,8 @@ class UpdateStoryUseCase:
         requires_recalculation = False
 
         # 3. Atualizar campos
-        if "feature" in updates:
-            story.feature = updates["feature"]
+        if "component" in updates:
+            story.component = updates["component"]
 
         if "name" in updates:
             story.name = updates["name"]

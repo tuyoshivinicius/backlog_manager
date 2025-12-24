@@ -24,7 +24,7 @@ def valid_excel_file(tmp_path):
     ws = wb.active
 
     # Cabeçalho (NOVO: 5 colunas)
-    ws.append(["ID", "Feature", "Nome", "StoryPoint", "Deps"])
+    ws.append(["ID", "Component", "Nome", "StoryPoint", "Deps"])
 
     # Dados
     ws.append(["US-001", "Autenticação", "Login de usuário", 5, ""])
@@ -41,7 +41,7 @@ def test_import_valid_excel(excel_service, valid_excel_file):
 
     assert len(stories) == 3
     assert stories[0].id == "US-001"
-    assert stories[0].feature == "Autenticação"
+    assert stories[0].component == "Autenticação"
     assert stories[0].name == "Login de usuário"
     assert stories[0].story_point == 5
     assert stories[1].id == "US-002"
@@ -54,7 +54,7 @@ def test_import_valid_excel(excel_service, valid_excel_file):
 
     # Verificar colunas presentes (formato legado)
     assert "id" in columns_present
-    assert "feature" in columns_present
+    assert "component" in columns_present
     assert "nome" in columns_present
     assert "story_point" in columns_present
     assert "deps" in columns_present
@@ -73,7 +73,7 @@ def test_import_invalid_header(excel_service, tmp_path):
     wb = Workbook()
     ws = wb.active
     ws.append(["Coluna1", "Coluna2", "Coluna3", "Coluna4", "Coluna5"])  # Cabeçalho errado
-    ws.append(["ID1", "Feature1", "Story1", 5, ""])
+    ws.append(["ID1", "Component1", "Story1", 5, ""])
     wb.save(file_path)
 
     with pytest.raises(ValueError, match="Colunas obrigatórias ausentes"):
@@ -86,9 +86,9 @@ def test_import_invalid_story_point_raises_error(excel_service, tmp_path):
 
     wb = Workbook()
     ws = wb.active
-    ws.append(["ID", "Feature", "Nome", "StoryPoint", "Deps"])
-    ws.append(["US-001", "Feature1", "Story1", 7, ""])  # 7 é inválido
-    ws.append(["US-002", "Feature2", "Story2", 5, ""])  # Válido
+    ws.append(["ID", "Component", "Nome", "StoryPoint", "Deps"])
+    ws.append(["US-001", "Component1", "Story1", 7, ""])  # 7 é inválido
+    ws.append(["US-002", "Component2", "Story2", 5, ""])  # Válido
     wb.save(file_path)
 
     stories, stats, columns_present = excel_service.import_stories(str(file_path))
@@ -106,9 +106,9 @@ def test_import_missing_data(excel_service, tmp_path):
 
     wb = Workbook()
     ws = wb.active
-    ws.append(["ID", "Feature", "Nome", "StoryPoint", "Deps"])
-    ws.append(["US-001", "Feature1", None, 5, ""])  # Nome faltando
-    ws.append(["US-002", "Feature2", "Story2", 5, ""])  # Válido
+    ws.append(["ID", "Component", "Nome", "StoryPoint", "Deps"])
+    ws.append(["US-001", "Component1", None, 5, ""])  # Nome faltando
+    ws.append(["US-002", "Component2", "Story2", 5, ""])  # Válido
     wb.save(file_path)
 
     stories, stats, columns_present = excel_service.import_stories(str(file_path))
@@ -129,7 +129,7 @@ def test_export_creates_formatted_excel(excel_service, tmp_path):
     stories = [
         StoryDTO(
             id="US-001",
-            feature="F1",
+            component="F1",
             name="S1",
             status="BACKLOG",
             priority=0,
@@ -153,12 +153,12 @@ def test_export_creates_formatted_excel(excel_service, tmp_path):
     # Cabeçalho
     assert ws.cell(1, 1).value == "Prioridade"
     assert ws.cell(1, 2).value == "ID"
-    assert ws.cell(1, 3).value == "Feature"
+    assert ws.cell(1, 3).value == "Component"
 
     # Dados
     assert ws.cell(2, 1).value == 0  # priority
     assert ws.cell(2, 2).value == "US-001"  # id
-    assert ws.cell(2, 3).value == "F1"  # feature
+    assert ws.cell(2, 3).value == "F1"  # component
     assert ws.cell(2, 4).value == "S1"  # name
     assert ws.cell(2, 5).value == "BACKLOG"  # status
     assert ws.cell(2, 6).value == "DEV-001"  # developer_id
@@ -175,7 +175,7 @@ def test_export_multiple_stories(excel_service, tmp_path):
     stories = [
         StoryDTO(
             id="US-001",
-            feature="F1",
+            component="F1",
             name="S1",
             status="BACKLOG",
             priority=0,
@@ -188,7 +188,7 @@ def test_export_multiple_stories(excel_service, tmp_path):
         ),
         StoryDTO(
             id="US-002",
-            feature="F1",
+            component="F1",
             name="S2",
             status="EXECUCAO",
             priority=1,
@@ -201,7 +201,7 @@ def test_export_multiple_stories(excel_service, tmp_path):
         ),
         StoryDTO(
             id="US-003",
-            feature="F2",
+            component="F2",
             name="S3",
             status="CONCLUIDO",
             priority=2,

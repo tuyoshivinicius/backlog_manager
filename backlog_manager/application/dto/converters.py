@@ -21,7 +21,7 @@ def story_to_dto(story: Story) -> StoryDTO:
     """
     return StoryDTO(
         id=story.id,
-        feature=story.feature,
+        component=story.component,
         name=story.name,
         status=story.status.value,
         priority=story.priority,
@@ -54,7 +54,7 @@ def dto_to_story(dto: StoryDTO) -> Story:
 
     return Story(
         id=dto.id,
-        feature=dto.feature,
+        component=dto.component,
         name=dto.name,
         story_point=story_point,  # type: ignore
         status=StoryStatus.from_string(dto.status),

@@ -45,14 +45,14 @@ class SQLiteStoryRepository(StoryRepository):
         cursor.execute(
             """
             REPLACE INTO stories (
-                id, feature, name, status, priority,
+                id, component, name, status, priority,
                 developer_id, dependencies, story_point,
                 start_date, end_date, duration, schedule_order
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 row_data["id"],
-                row_data["feature"],
+                row_data["component"],
                 row_data["name"],
                 row_data["status"],
                 row_data["priority"],
@@ -142,7 +142,7 @@ class SQLiteStoryRepository(StoryRepository):
         """
         return {
             "id": story.id,
-            "feature": story.feature,
+            "component": story.component,
             "name": story.name,
             "status": story.status.value,
             "priority": story.priority,
@@ -167,7 +167,7 @@ class SQLiteStoryRepository(StoryRepository):
         """
         return Story(
             id=row["id"],
-            feature=row["feature"],
+            component=row["component"],
             name=row["name"],
             status=StoryStatus(row["status"]),
             priority=row["priority"],

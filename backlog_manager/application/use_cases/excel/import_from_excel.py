@@ -80,7 +80,7 @@ class ImportFromExcelUseCase:
         # Atualizar apenas campos presentes na planilha (exceto calculados)
         return Story(
             id=existing.id,
-            feature=imported.feature if "feature" in columns_present else existing.feature,
+            component=imported.component if "component" in columns_present else existing.component,
             name=imported.name if "nome" in columns_present else existing.name,
             story_point=story_point,
             status=status,
