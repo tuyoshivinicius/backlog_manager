@@ -38,7 +38,7 @@ def test_full_flow_excel_import_to_database_to_export(tmp_path):
 
     # 2. Importar histórias
     excel_service = OpenpyxlExcelService()
-    stories_dto, stats = excel_service.import_stories(str(import_file))
+    stories_dto, stats, columns_present = excel_service.import_stories(str(import_file))
 
     assert len(stories_dto) == 3
     assert stories_dto[0].id == "US-001"

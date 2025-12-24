@@ -44,26 +44,129 @@ class OpenpyxlExcelService(ExcelService):
         "Duração",
     ]
 
+    # Mapeamento flexível de colunas (case-insensitive)
+    # Mapeia campo normalizado → aliases aceitos
+    COLUMN_ALIASES = {
+        "id": ["id"],
+        "feature": ["feature"],
+        "nome": ["nome", "name"],
+        "story_point": ["storypoint", "sp"],
+        "deps": ["deps", "dependencias", "dependências"],
+        "status": ["status"],
+        "desenvolvedor": ["desenvolvedor", "developer", "developer_id"],
+        "prioridade": ["prioridade", "priority"],
+    }
+
+    def _detect_and_map_columns(self, header: List[Any]) -> dict[str, int]:
+        """
+        Detecta formato da planilha e mapeia colunas (case-insensitive).
+
+        Args:
+            header: Lista de nomes de colunas do cabeçalho Excel
+
+        Returns:
+            Dict mapeando campo normalizado → índice da coluna (0-based)
+            Ex: {"id": 1, "feature": 2, "story_point": 7}
+
+        Raises:
+            ValueError: Se colunas obrigatórias ausentes
+        """
+        # Normalizar cabeçalho (lowercase, strip)
+        normalized_header = []
+        for col in header:
+            if col is None:
+                normalized_header.append("")
+            else:
+                normalized_header.append(str(col).strip().lower())
+
+        # Mapear cada campo normalizado → índice da coluna
+        column_map: dict[str, int] = {}
+
+        for field, aliases in self.COLUMN_ALIASES.items():
+            for col_idx, col_name in enumerate(normalized_header):
+                if col_name in [alias.lower() for alias in aliases]:
+                    column_map[field] = col_idx
+                    break
+
+        # Validar colunas obrigatórias
+        required_fields = ["id", "feature", "nome"]
+        missing_fields = [field for field in required_fields if field not in column_map]
+
+        if missing_fields:
+            missing_names = [field.title() for field in missing_fields]
+            raise ValueError(
+                f"Colunas obrigatórias ausentes: {', '.join(missing_names)}"
+            )
+
+        # Validar presença de story_point (aceita "SP" ou "StoryPoint")
+        if "story_point" not in column_map:
+            raise ValueError(
+                "Nenhuma coluna de Story Point encontrada. Use 'SP' ou 'StoryPoint'"
+            )
+
+        return column_map
+
+    def _extract_value(self, row: Tuple, column_map: dict[str, int], field: str) -> Any:
+        """
+        Extrai valor de campo usando mapeamento flexível.
+
+        Args:
+            row: Tupla de valores da linha Excel
+            column_map: Mapeamento campo → índice
+            field: Nome do campo normalizado
+
+        Returns:
+            Valor do campo ou None se campo não presente
+        """
+        if field not in column_map:
+            return None
+
+        col_idx = column_map[field]
+        if col_idx >= len(row):
+            return None
+
+        return row[col_idx]
+
+    def _get_present_columns(self, column_map: dict[str, int]) -> Set[str]:
+        """
+        Retorna set de campos normalizados presentes na planilha.
+
+        Args:
+            column_map: Mapeamento campo → índice
+
+        Returns:
+            Set de campos presentes
+            Ex: {"id", "feature", "nome", "story_point", "deps", "status"}
+        """
+        return set(column_map.keys())
+
     def import_stories(
         self,
         filepath: str,
         existing_ids: Optional[Set[str]] = None
-    ) -> Tuple[List[StoryDTO], dict]:
+    ) -> Tuple[List[StoryDTO], dict, Set[str]]:
         """
-        Importa histórias de arquivo Excel (5 colunas: ID, Feature, Nome, StoryPoint, Deps).
+        Importa histórias de arquivo Excel com mapeamento flexível de colunas.
+
+        Suporta dois formatos:
+        - Legado (5 colunas): ID, Feature, Nome, StoryPoint, Deps
+        - Completo (11 colunas): Prioridade, ID, Feature, Nome, Status, Desenvolvedor, Dependências, SP, Início, Fim, Duração
+
+        Mapeamento case-insensitive de aliases: StoryPoint/SP, Deps/Dependências, etc.
 
         Args:
             filepath: Caminho do arquivo .xlsx
             existing_ids: IDs de histórias já existentes no banco
 
         Returns:
-            Tupla (stories_dto, stats) onde:
+            Tupla (stories_dto, stats, columns_present) onde:
             - stories_dto: Lista de histórias válidas importadas
             - stats: Estatísticas da importação
+            - columns_present: Set de campos presentes na planilha
 
         Raises:
             FileNotFoundError: Se arquivo não existe
-            ValueError: Se formato inválido (cabeçalho incorreto)
+            ValueError: Se colunas obrigatórias ausentes
         """
         if existing_ids is None:
             existing_ids = set()
@@ -74,13 +177,10 @@ class OpenpyxlExcelService(ExcelService):
         workbook = load_workbook(filepath)
         sheet = workbook.active
 
-        # Validar cabeçalho (deve ter exatamente 5 colunas)
-        header = [cell.value for cell in sheet[1]][:5]
-        if header != self.IMPORT_COLUMNS:
-            raise ValueError(
-                f"Layout inválido. Esperado: {self.IMPORT_COLUMNS}, "
-                f"Encontrado: {header}"
-            )
+        # Detectar e mapear colunas (case-insensitive, flexível)
+        header = [cell.value for cell in sheet[1]]
+        column_map = self._detect_and_map_columns(header)
+        columns_present = self._get_present_columns(column_map)
 
         # Inicializar estatísticas
         stats: dict[str, Any] = {
@@ -92,7 +192,7 @@ class OpenpyxlExcelService(ExcelService):
             "warnings": []
         }
 
-        temp_stories = []  # Lista temporária: (story_id, story_dto, row_num)
+        temp_stories = []  # Lista temporária: (story_id, story_dto, row_num, deps_value)
         id_counts: dict[str, int] = {}     # Mapear ID → contagem de ocorrências
         generated_id_counter = 1
 
@@ -100,8 +200,15 @@ class OpenpyxlExcelService(ExcelService):
         for row_num, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
             stats["total_processadas"] += 1
 
-            # Extrair valores das 5 colunas
-            id_value, feature, name, sp_value, deps_value = row[:5]
+            # Extrair valores usando mapeamento flexível
+            id_value = self._extract_value(row, column_map, "id")
+            feature = self._extract_value(row, column_map, "feature")
+            name = self._extract_value(row, column_map, "nome")
+            sp_value = self._extract_value(row, column_map, "story_point")
+            deps_value = self._extract_value(row, column_map, "deps")
+            status = self._extract_value(row, column_map, "status")
+            desenvolvedor = self._extract_value(row, column_map, "desenvolvedor")
+            prioridade = self._extract_value(row, column_map, "prioridade")
 
             # Validar campos obrigatórios (Feature e Nome)
             if not feature or str(feature).strip() == "":
@@ -142,15 +249,42 @@ class OpenpyxlExcelService(ExcelService):
                     )
                     continue
 
+            # Processar status (com fallback para BACKLOG)
+            status_str = "BACKLOG"
+            if status and str(status).strip():
+                status_str = str(status).strip().upper()
+                # Validar se status é válido
+                valid_statuses = ["BACKLOG", "EXECUCAO", "TESTES", "CONCLUIDO", "IMPEDIDO"]
+                if status_str not in valid_statuses:
+                    stats["warnings"].append(
+                        f"Linha {row_num}: Status inválido '{status}', usando 'BACKLOG'"
+                    )
+                    status_str = "BACKLOG"
+
+            # Processar desenvolvedor (opcional)
+            developer_id = None
+            if desenvolvedor and str(desenvolvedor).strip():
+                developer_id = str(desenvolvedor).strip()
+
+            # Processar prioridade (com fallback para 0)
+            priority_value = 0
+            if prioridade is not None:
+                try:
+                    priority_value = int(prioridade)
+                    if priority_value < 0:
+                        priority_value = 0
+                except (ValueError, TypeError):
+                    priority_value = 0
+
             # Criar DTO temporário (dependências serão processadas depois)
             story_dto = StoryDTO(
                 id=story_id,
                 feature=str(feature).strip(),
                 name=str(name).strip(),
-                status="BACKLOG",
-                priority=0,  # Será ajustado depois
-                developer_id=None,
-                dependencies=[],  # Processado na FASE 2
+                status=status_str,
+                priority=priority_value,
+                developer_id=developer_id,
+                dependencies=[],  # Processado na FASE 3
                 story_point=sp_validated,
                 start_date=None,
                 end_date=None,
@@ -196,13 +330,14 @@ class OpenpyxlExcelService(ExcelService):
 
             valid_stories.append(story_dto)
 
-        # FASE 4: Ajustar prioridades sequencialmente
-        for idx, story_dto in enumerate(valid_stories, start=1):
-            story_dto.priority = idx
+        # FASE 4: Ajustar prioridades sequencialmente (se coluna prioridade NÃO presente)
+        if "prioridade" not in columns_present:
+            for idx, story_dto in enumerate(valid_stories, start=1):
+                story_dto.priority = idx
 
         stats["total_importadas"] = len(valid_stories)
 
-        return valid_stories, stats
+        return valid_stories, stats, columns_present
 
     def _process_dependencies(
         self,

@@ -37,7 +37,7 @@ def valid_excel_file(tmp_path):
 
 def test_import_valid_excel(excel_service, valid_excel_file):
     """Deve importar histórias de Excel válido."""
-    stories, stats = excel_service.import_stories(valid_excel_file)
+    stories, stats, columns_present = excel_service.import_stories(valid_excel_file)
 
     assert len(stories) == 3
     assert stories[0].id == "US-001"
@@ -52,6 +52,13 @@ def test_import_valid_excel(excel_service, valid_excel_file):
     assert stats["ignoradas_duplicadas"] == 0
     assert stats["ignoradas_invalidas"] == 0
 
+    # Verificar colunas presentes (formato legado)
+    assert "id" in columns_present
+    assert "feature" in columns_present
+    assert "nome" in columns_present
+    assert "story_point" in columns_present
+    assert "deps" in columns_present
+
 
 def test_import_file_not_found(excel_service):
     """Deve lançar erro se arquivo não existe."""
@@ -60,7 +67,7 @@ def test_import_file_not_found(excel_service):
 
 
 def test_import_invalid_header(excel_service, tmp_path):
-    """Deve lançar erro se cabeçalho inválido."""
+    """Deve lançar erro se cabeçalho inválido (colunas obrigatórias ausentes)."""
     file_path = tmp_path / "invalid_header.xlsx"
 
     wb = Workbook()
@@ -69,7 +76,7 @@ def test_import_invalid_header(excel_service, tmp_path):
     ws.append(["ID1", "Feature1", "Story1", 5, ""])
     wb.save(file_path)
 
-    with pytest.raises(ValueError, match="Layout inválido"):
+    with pytest.raises(ValueError, match="Colunas obrigatórias ausentes"):
         excel_service.import_stories(str(file_path))
 
 
@@ -84,7 +91,7 @@ def test_import_invalid_story_point_raises_error(excel_service, tmp_path):
     ws.append(["US-002", "Feature2", "Story2", 5, ""])  # Válido
     wb.save(file_path)
 
-    stories, stats = excel_service.import_stories(str(file_path))
+    stories, stats, columns_present = excel_service.import_stories(str(file_path))
 
     # História com story point inválido deve ser ignorada
     assert len(stories) == 1
@@ -104,7 +111,7 @@ def test_import_missing_data(excel_service, tmp_path):
     ws.append(["US-002", "Feature2", "Story2", 5, ""])  # Válido
     wb.save(file_path)
 
-    stories, stats = excel_service.import_stories(str(file_path))
+    stories, stats, columns_present = excel_service.import_stories(str(file_path))
 
     # Linha com nome vazio deve ser ignorada
     assert len(stories) == 1
