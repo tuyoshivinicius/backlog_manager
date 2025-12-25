@@ -92,10 +92,10 @@ class SQLiteConnection:
                     # Executar migration (idempotente)
                     applied = migration_001.apply_if_needed(self._connection)
                     if applied:
-                        print("✅ Migration 001 aplicada: coluna roadmap_start_date adicionada")
+                        print("[OK] Migration 001 aplicada: coluna roadmap_start_date adicionada")
         except Exception as e:
             # Migration já aplicada ou erro - não falhar
-            print(f"ℹ️ Migration 001: {e}")
+            print(f"[INFO] Migration 001: {e}")
             pass
 
         # Migration 002: Adicionar coluna schedule_order
@@ -112,10 +112,50 @@ class SQLiteConnection:
                     # Executar migration (idempotente)
                     applied = migration_002.apply_if_needed(self._connection)
                     if applied:
-                        print("✅ Migration 002 aplicada: coluna schedule_order adicionada")
+                        print("[OK] Migration 002 aplicada: coluna schedule_order adicionada")
         except Exception as e:
             # Migration já aplicada ou erro - não falhar
-            print(f"ℹ️ Migration 002: {e}")
+            print(f"[INFO] Migration 002: {e}")
+            pass
+
+        # Migration 003: Adicionar features e relacionamento com stories
+        try:
+            migration_003_path = migrations_path / "003_add_features.py"
+            if migration_003_path.exists():
+                import importlib.util
+
+                spec = importlib.util.spec_from_file_location("migration_003", migration_003_path)
+                if spec and spec.loader:
+                    migration_003 = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(migration_003)
+
+                    # Executar migration (idempotente)
+                    applied = migration_003.apply_if_needed(self._connection)
+                    if applied:
+                        print("[OK] Migration 003 aplicada: tabela features criada e stories atualizadas")
+        except Exception as e:
+            # Migration já aplicada ou erro - não falhar
+            print(f"[INFO] Migration 003: {e}")
+            pass
+
+        # Migration 004: Tornar feature_id nullable
+        try:
+            migration_004_path = migrations_path / "004_make_feature_id_nullable.py"
+            if migration_004_path.exists():
+                import importlib.util
+
+                spec = importlib.util.spec_from_file_location("migration_004", migration_004_path)
+                if spec and spec.loader:
+                    migration_004 = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(migration_004)
+
+                    # Executar migration (idempotente)
+                    applied = migration_004.apply_if_needed(self._connection)
+                    if applied:
+                        print("[OK] Migration 004 aplicada: feature_id agora permite NULL")
+        except Exception as e:
+            # Migration já aplicada ou erro - não falhar
+            print(f"[INFO] Migration 004: {e}")
             pass
 
     def get_connection(self) -> sqlite3.Connection:

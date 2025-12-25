@@ -1,8 +1,12 @@
 """Caso de uso para buscar desenvolvedor."""
+import logging
+
 from backlog_manager.application.dto.developer_dto import DeveloperDTO
 from backlog_manager.application.dto.converters import developer_to_dto
 from backlog_manager.application.interfaces.repositories.developer_repository import DeveloperRepository
 from backlog_manager.domain.exceptions.domain_exceptions import DeveloperNotFoundException
+
+logger = logging.getLogger(__name__)
 
 
 class GetDeveloperUseCase:
@@ -36,11 +40,16 @@ class GetDeveloperUseCase:
         Raises:
             DeveloperNotFoundException: Se desenvolvedor não existe
         """
+        logger.debug(f"Buscando desenvolvedor: id='{developer_id}'")
+
         # 1. Buscar desenvolvedor
         developer = self._developer_repository.find_by_id(developer_id)
 
         if developer is None:
+            logger.error(f"Desenvolvedor não encontrado: id='{developer_id}'")
             raise DeveloperNotFoundException(developer_id)
+
+        logger.debug(f"Desenvolvedor encontrado: id='{developer_id}', name='{developer.name}'")
 
         # 2. Retornar DTO
         return developer_to_dto(developer)

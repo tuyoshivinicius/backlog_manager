@@ -28,7 +28,20 @@
       "Bash(./.venv/Scripts/python.exe -m pytest tests/ -v --tb=short)",
       "Bash(./.venv/Scripts/python.exe -m pytest tests/integration/infrastructure/excel/test_openpyxl_excel_service.py -v)",
       "Bash(./.venv/Scripts/python.exe -m pytest tests/ -x --tb=line)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(..venvScriptspython.exe -m pytest tests/unit/domain/test_feature.py -v)",
+      "Bash(./.venv/Scripts/python.exe -m pytest tests/unit/domain/test_feature.py -v)",
+      "Bash(./.venv/Scripts/python.exe -m pytest tests/integration/infrastructure/database/repositories/test_sqlite_feature_repository.py -v)",
+      "Bash(./.venv/Scripts/python.exe:*)",
+      "Bash(findstr:*)",
+      "Bash(..venvScriptspython.exe -m backlog_manager.main)",
+      "Bash(.\\\\.venv\\\\Scripts\\\\python.exe -m pytest:*)",
+      "Bash(set BACKLOG_MANAGER_LOG_LEVEL=DEBUG)",
+      "Bash(cmd /c \"set BACKLOG_MANAGER_LOG_LEVEL=DEBUG && .\\\\.venv\\\\Scripts\\\\python.exe -m backlog_manager.main\")",
+      "Bash(./run_debug.bat)",
+      "Bash(ls:*)",
+      "Bash(.venv/Scripts/python.exe:*)",
+      "Bash(\"../.venv/Scripts/python.exe\" main.py)"
     ]
   }
 }

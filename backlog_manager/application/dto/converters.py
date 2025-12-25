@@ -1,9 +1,11 @@
 """Conversores entre Entities e DTOs."""
 from backlog_manager.application.dto.configuration_dto import ConfigurationDTO
 from backlog_manager.application.dto.developer_dto import DeveloperDTO
+from backlog_manager.application.dto.feature_dto import FeatureDTO
 from backlog_manager.application.dto.story_dto import StoryDTO
 from backlog_manager.domain.entities.configuration import Configuration
 from backlog_manager.domain.entities.developer import Developer
+from backlog_manager.domain.entities.feature import Feature
 from backlog_manager.domain.entities.story import Story
 from backlog_manager.domain.value_objects.story_point import StoryPoint
 from backlog_manager.domain.value_objects.story_status import StoryStatus
@@ -19,18 +21,25 @@ def story_to_dto(story: Story) -> StoryDTO:
     Returns:
         StoryDTO correspondente
     """
+    # Obter feature_name e wave se feature estiver carregada
+    feature_name = story.feature.name if story.feature else None
+    wave = story.feature.wave if story.feature else None
+
     return StoryDTO(
         id=story.id,
         component=story.component,
         name=story.name,
         status=story.status.value,
         priority=story.priority,
+        feature_id=story.feature_id,
         developer_id=story.developer_id,
         dependencies=story.dependencies.copy(),
         story_point=story.story_point.value,
         start_date=story.start_date,
         end_date=story.end_date,
         duration=story.duration,
+        feature_name=feature_name,
+        wave=wave,
     )
 
 
@@ -57,6 +66,7 @@ def dto_to_story(dto: StoryDTO) -> Story:
         component=dto.component,
         name=dto.name,
         story_point=story_point,  # type: ignore
+        feature_id=dto.feature_id,
         status=StoryStatus.from_string(dto.status),
         priority=dto.priority,
         developer_id=dto.developer_id,
@@ -124,3 +134,29 @@ def dto_to_configuration(dto: ConfigurationDTO) -> Configuration:
     return Configuration(
         story_points_per_sprint=dto.story_points_per_sprint, workdays_per_sprint=dto.workdays_per_sprint
     )
+
+
+def feature_to_dto(feature: Feature) -> FeatureDTO:
+    """
+    Converte Feature entity para FeatureDTO.
+
+    Args:
+        feature: Entidade Feature
+
+    Returns:
+        FeatureDTO correspondente
+    """
+    return FeatureDTO(id=feature.id, name=feature.name, wave=feature.wave)
+
+
+def dto_to_feature(dto: FeatureDTO) -> Feature:
+    """
+    Converte FeatureDTO para Feature entity.
+
+    Args:
+        dto: FeatureDTO
+
+    Returns:
+        Entidade Feature correspondente
+    """
+    return Feature(id=dto.id, name=dto.name, wave=dto.wave)

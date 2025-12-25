@@ -1,4 +1,5 @@
 """Caso de uso para validar alocação de desenvolvedor."""
+import logging
 from typing import List, Tuple
 
 from backlog_manager.application.interfaces.repositories.story_repository import (
@@ -8,6 +9,8 @@ from backlog_manager.domain.services.allocation_validator import (
     AllocationValidator,
     AllocationConflict
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ValidateDeveloperAllocationUseCase:
@@ -57,13 +60,22 @@ class ValidateDeveloperAllocationUseCase:
             >>> if not is_valid:
             ...     print(f"Conflitos: {[c.story_id for c in conflicts]}")
         """
+        logger.info(f"Validando alocação: story_id='{story_id}', developer_id='{developer_id}'")
+
         # Buscar história
         story = self._story_repo.find_by_id(story_id)
         if not story:
+            logger.debug(f"História não encontrada: id='{story_id}' - sem conflito")
             return True, []  # História não existe, sem conflito
+
+        logger.debug(
+            f"História encontrada: id='{story_id}', "
+            f"período: {story.start_date} a {story.end_date}"
+        )
 
         # Buscar todas as histórias
         all_stories = self._story_repo.find_all()
+        logger.debug(f"Total de histórias para comparação: {len(all_stories)}")
 
         # Validar
         has_conflict, conflicts = self._validator.has_conflict(
@@ -74,4 +86,14 @@ class ValidateDeveloperAllocationUseCase:
             all_stories=all_stories
         )
 
-        return not has_conflict, conflicts
+        is_valid = not has_conflict
+        if is_valid:
+            logger.info(f"Alocação válida: sem conflitos para desenvolvedor '{developer_id}'")
+        else:
+            logger.warning(
+                f"Alocação inválida: {len(conflicts)} conflito(s) detectado(s) "
+                f"para desenvolvedor '{developer_id}'"
+            )
+            logger.debug(f"Conflitos: {[c.story_id for c in conflicts]}")
+
+        return is_valid, conflicts

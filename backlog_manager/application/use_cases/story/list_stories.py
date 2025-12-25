@@ -1,9 +1,12 @@
 """Caso de uso para listar histórias."""
+import logging
 from typing import List
 
 from backlog_manager.application.dto.converters import story_to_dto
 from backlog_manager.application.dto.story_dto import StoryDTO
 from backlog_manager.application.interfaces.repositories.story_repository import StoryRepository
+
+logger = logging.getLogger(__name__)
 
 
 class ListStoriesUseCase:
@@ -32,8 +35,11 @@ class ListStoriesUseCase:
         Returns:
             Lista de StoryDTO ordenada por prioridade (menor = mais prioritário)
         """
+        logger.debug("Listando todas as histórias")
+
         # 1. Buscar todas histórias
         stories = self._story_repository.find_all()
+        logger.debug(f"Encontradas {len(stories)} histórias")
 
         # 2. Ordenar por prioridade
         stories.sort(key=lambda s: s.priority)

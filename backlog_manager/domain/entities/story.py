@@ -1,10 +1,13 @@
 """Entidade Story (História)."""
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from backlog_manager.domain.value_objects.story_point import StoryPoint
 from backlog_manager.domain.value_objects.story_status import StoryStatus
+
+if TYPE_CHECKING:
+    from backlog_manager.domain.entities.feature import Feature
 
 
 @dataclass
@@ -22,18 +25,21 @@ class Story:
         story_point: Esforço de implementação (3, 5, 8 ou 13)
         status: Estado atual no ciclo de vida
         priority: Ordem de prioridade (menor = mais prioritário)
+        feature_id: ID da feature à qual a história pertence (obrigatório)
         developer_id: ID do desenvolvedor alocado (opcional)
         dependencies: Lista de IDs de histórias das quais depende
         start_date: Data de início planejada
         end_date: Data de término planejada
         duration: Duração em dias úteis
         schedule_order: Ordem para alocação de desenvolvedores (sincronizada com priority)
+        feature: Feature à qual a história pertence (carregado pelo repository)
     """
 
     id: str
     component: str
     name: str
     story_point: StoryPoint
+    feature_id: Optional[str] = None
     status: StoryStatus = StoryStatus.BACKLOG
     priority: int = 0
     developer_id: Optional[str] = None
@@ -42,6 +48,7 @@ class Story:
     end_date: Optional[date] = None
     duration: Optional[int] = None
     schedule_order: Optional[int] = None
+    feature: Optional["Feature"] = None
 
     def __post_init__(self) -> None:
         """Valida dados após inicialização."""
@@ -128,6 +135,19 @@ class Story:
     def is_allocated(self) -> bool:
         """Verifica se tem desenvolvedor alocado."""
         return self.developer_id is not None
+
+    @property
+    def wave(self) -> int:
+        """
+        Retorna a onda da história (derivada da feature).
+
+        Returns:
+            Número da onda (0 se não houver feature associada)
+        """
+        if self.feature is None:
+            # História sem feature associada retorna wave 0 (backlog inicial)
+            return 0
+        return self.feature.wave
 
     def __eq__(self, other: object) -> bool:
         """Entidades são iguais se têm mesmo ID."""

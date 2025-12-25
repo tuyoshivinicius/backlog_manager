@@ -3,8 +3,11 @@ Controlador de operações de desenvolvedores.
 
 Orquestra a comunicação entre views e use cases relacionados a desenvolvedores.
 """
+import logging
 from typing import Optional, List
 from PySide6.QtWidgets import QWidget
+
+logger = logging.getLogger(__name__)
 
 from backlog_manager.application.use_cases.developer.create_developer import (
     CreateDeveloperUseCase,

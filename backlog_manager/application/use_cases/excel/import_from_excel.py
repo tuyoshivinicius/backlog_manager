@@ -1,4 +1,5 @@
 """Caso de uso para importar backlog de Excel."""
+import logging
 from typing import Set
 
 from backlog_manager.application.dto.backlog_dto import BacklogDTO
@@ -10,6 +11,8 @@ from backlog_manager.domain.entities.story import Story
 from backlog_manager.domain.services.cycle_detector import CycleDetector
 from backlog_manager.domain.value_objects.story_point import StoryPoint
 from backlog_manager.domain.value_objects.story_status import StoryStatus
+
+logger = logging.getLogger(__name__)
 
 
 class ImportFromExcelUseCase:
@@ -108,21 +111,27 @@ class ImportFromExcelUseCase:
             FileNotFoundError: Se arquivo não existe
             ValueError: Se dados inválidos no Excel (cabeçalho incorreto)
         """
+        logger.info(f"Iniciando importação de Excel: file='{file_path}', clear_existing={clear_existing}")
+
         # 1. Limpar backlog se solicitado
         if clear_existing:
             all_stories = self._story_repository.find_all()
+            logger.warning(f"Limpando {len(all_stories)} histórias existentes")
             for story in all_stories:
                 self._story_repository.delete(story.id)
 
         # 2. Buscar histórias existentes no banco
         existing_stories = self._story_repository.find_all()
         existing_stories_dict = {s.id: s for s in existing_stories}
+        logger.debug(f"Histórias existentes no banco: {len(existing_stories)}")
 
         # 3. Delegar leitura para ExcelService (NOVA ASSINATURA: retorna 3 valores)
+        logger.debug("Lendo arquivo Excel")
         imported_stories_dto, stats, columns_present = self._excel_service.import_stories(
             file_path,
             existing_ids=set(existing_stories_dict.keys()) if not clear_existing else set()
         )
+        logger.info(f"Lidas {len(imported_stories_dto)} histórias do Excel")
 
         # Adicionar estatísticas de UPDATE/INSERT
         stats["historias_criadas"] = 0
@@ -207,6 +216,8 @@ class ImportFromExcelUseCase:
         duration_days = 0
 
         # 8. Retornar BacklogDTO com estatísticas
+        logger.info(f"Importação concluída: {stats['historias_criadas']} criadas, {stats['historias_atualizadas']} atualizadas, {stats['ignoradas_invalidas']} ignoradas")
+
         return BacklogDTO(
             stories=[story_to_dto(s) for s in processed_stories],
             total_count=len(processed_stories),

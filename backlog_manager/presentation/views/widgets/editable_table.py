@@ -76,20 +76,23 @@ class EditableTableWidget(QTableWidget):
 
     # Índices das colunas
     COL_PRIORITY = 0
-    COL_ID = 1
-    COL_FEATURE = 2
-    COL_NAME = 3
-    COL_STATUS = 4
-    COL_DEVELOPER = 5
-    COL_DEPENDENCIES = 6
-    COL_STORY_POINT = 7
-    COL_START_DATE = 8
-    COL_END_DATE = 9
-    COL_DURATION = 10
+    COL_FEATURE = 1
+    COL_WAVE = 2
+    COL_ID = 3
+    COL_COMPONENT = 4
+    COL_NAME = 5
+    COL_STATUS = 6
+    COL_DEVELOPER = 7
+    COL_DEPENDENCIES = 8
+    COL_STORY_POINT = 9
+    COL_START_DATE = 10
+    COL_END_DATE = 11
+    COL_DURATION = 12
 
     # Mapeamento de índice para nome de campo
     COLUMN_TO_FIELD = {
-        COL_FEATURE: "component",
+        COL_COMPONENT: "component",
+        COL_FEATURE: "feature_id",
         COL_NAME: "name",
         COL_STATUS: "status",
         COL_DEVELOPER: "developer_id",
@@ -108,7 +111,7 @@ class EditableTableWidget(QTableWidget):
     def _setup_table(self) -> None:
         """Configura propriedades da tabela."""
         # Configurações gerais
-        self.setColumnCount(11)
+        self.setColumnCount(13)  # Aumentado de 11 para 13 (Feature e Wave)
         self.setAlternatingRowColors(True)
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -124,6 +127,8 @@ class EditableTableWidget(QTableWidget):
         # Cabeçalhos
         headers = [
             "Prioridade",
+            "Feature",
+            "Onda",
             "ID",
             "Component",
             "Nome",
@@ -139,8 +144,10 @@ class EditableTableWidget(QTableWidget):
 
         # Configurar larguras de coluna
         self.setColumnWidth(self.COL_PRIORITY, 80)
+        self.setColumnWidth(self.COL_FEATURE, 150)
+        self.setColumnWidth(self.COL_WAVE, 60)
         self.setColumnWidth(self.COL_ID, 60)
-        self.setColumnWidth(self.COL_FEATURE, 120)
+        self.setColumnWidth(self.COL_COMPONENT, 100)
         self.setColumnWidth(self.COL_NAME, 250)
         self.setColumnWidth(self.COL_STATUS, 100)
         self.setColumnWidth(self.COL_DEVELOPER, 120)
@@ -204,7 +211,18 @@ class EditableTableWidget(QTableWidget):
         self.setItem(row, self.COL_ID, id_item)
 
         # Component (editável)
-        self.setItem(row, self.COL_FEATURE, QTableWidgetItem(story.component))
+        self.setItem(row, self.COL_COMPONENT, QTableWidgetItem(story.component))
+
+        # Feature (editável via delegate)
+        feature_text = story.feature_name if story.feature_name else story.feature_id
+        self.setItem(row, self.COL_FEATURE, QTableWidgetItem(feature_text))
+
+        # Onda (read-only, cinza, derivado da feature)
+        wave_text = str(story.wave) if story.wave is not None else ""
+        wave_item = QTableWidgetItem(wave_text)
+        wave_item.setFlags(wave_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        wave_item.setForeground(QColor("#757575"))  # Cinza para indicar read-only
+        self.setItem(row, self.COL_WAVE, wave_item)
 
         # Nome (editável)
         self.setItem(row, self.COL_NAME, QTableWidgetItem(story.name))
@@ -280,7 +298,16 @@ class EditableTableWidget(QTableWidget):
         field_name = self.COLUMN_TO_FIELD[col]
 
         # Obter novo valor
-        new_value = item.text()
+        # IMPORTANTE: Para feature_id, usar o dado EditRole armazenado pelo delegate
+        # e não o texto de display (DisplayRole) que pode mostrar "Onda X: Nome (ID: XXX)"
+        if field_name == "feature_id":
+            # Obter o valor EditRole que foi definido pelo FeatureDelegate
+            new_value = item.data(Qt.ItemDataRole.EditRole)
+            # Se está vazio, usar o texto
+            if new_value is None:
+                new_value = item.text()
+        else:
+            new_value = item.text()
 
         # Converter valor se necessário
         if field_name == "story_point":

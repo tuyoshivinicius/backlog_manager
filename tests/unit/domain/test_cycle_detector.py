@@ -138,7 +138,7 @@ class TestCycleDetector:
             detector.find_cycle_path(deps)
 
         # Verificar que a mensagem contém o símbolo de seta
-        assert "→" in str(exc_info.value)
+        assert "->" in str(exc_info.value)
 
     def test_find_cycle_path_returns_none_when_no_cycle(self) -> None:
         """find_cycle_path deve retornar None quando não há ciclo."""

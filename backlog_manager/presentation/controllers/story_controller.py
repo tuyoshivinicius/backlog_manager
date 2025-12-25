@@ -3,8 +3,11 @@ Controlador de operações de histórias.
 
 Orquestra a comunicação entre views e use cases relacionados a histórias.
 """
+import logging
 from typing import Optional, List
 from PySide6.QtWidgets import QWidget
+
+logger = logging.getLogger(__name__)
 
 from backlog_manager.application.use_cases.story.create_story import CreateStoryUseCase
 from backlog_manager.application.use_cases.story.update_story import UpdateStoryUseCase
@@ -125,15 +128,21 @@ class StoryController:
         Args:
             form_data: Dados do formulário
         """
+        logger.info(f"Criando história: component='{form_data.get('component')}', name='{form_data.get('name')}'")
+        logger.debug(f"Dados completos do formulário: {form_data}")
+
         try:
             story = self._create_use_case.execute(form_data)
+            logger.info(f"História criada com sucesso: id='{story.id}', priority={story.priority}")
+
             self._refresh_view()
 
             # Feedback visual via status bar (MessageBox causa crash com delegates)
             # TODO: Investigar causa raiz do crash do MessageBox no futuro
-            print(f"✓ História '{story.name}' criada com sucesso!")
+            logger.info(f"✓ História '{story.name}' criada com sucesso!")
 
         except Exception as e:
+            logger.error(f"Erro ao criar história: {e}", exc_info=True)
             MessageBox.error(
                 self._parent_widget, "Erro ao Criar História", str(e)
             )
@@ -146,13 +155,19 @@ class StoryController:
             story_id: ID da história
             form_data: Dados atualizados
         """
+        logger.info(f"Atualizando história: id='{story_id}'")
+        logger.debug(f"Dados de atualização: {form_data}")
+
         try:
             self._update_use_case.execute(story_id, form_data)
+            logger.info(f"História '{story_id}' atualizada com sucesso")
+
             MessageBox.success(
                 self._parent_widget, "Sucesso", "História atualizada com sucesso!"
             )
             self._refresh_view()
         except Exception as e:
+            logger.error(f"Erro ao atualizar história '{story_id}': {e}", exc_info=True)
             MessageBox.error(
                 self._parent_widget, "Erro ao Atualizar História", str(e)
             )
@@ -164,21 +179,28 @@ class StoryController:
         Args:
             story_id: ID da história a deletar
         """
+        logger.info(f"Solicitação de deleção de história: id='{story_id}'")
+
         try:
             # Obter história para confirmar
             story = self._get_use_case.execute(story_id)
 
             # Confirmar deleção
             if not MessageBox.confirm_delete(self._parent_widget, story.name):
+                logger.debug(f"Deleção de '{story_id}' cancelada pelo usuário")
                 return
 
             # Deletar
+            logger.info(f"Deletando história: id='{story_id}'")
             self._delete_use_case.execute(story_id)
+            logger.info(f"História '{story_id}' deletada com sucesso")
+
             MessageBox.success(
                 self._parent_widget, "Sucesso", "História deletada com sucesso!"
             )
             self._refresh_view()
         except Exception as e:
+            logger.error(f"Erro ao deletar história '{story_id}': {e}", exc_info=True)
             MessageBox.error(
                 self._parent_widget, "Erro ao Deletar História", str(e)
             )
@@ -190,8 +212,12 @@ class StoryController:
         Args:
             story_id: ID da história a duplicar
         """
+        logger.info(f"Duplicando história: id='{story_id}'")
+
         try:
             new_story = self._duplicate_use_case.execute(story_id)
+            logger.info(f"História duplicada: original='{story_id}', nova='{new_story.id}'")
+
             MessageBox.success(
                 self._parent_widget,
                 "Sucesso",
@@ -199,6 +225,7 @@ class StoryController:
             )
             self._refresh_view()
         except Exception as e:
+            logger.error(f"Erro ao duplicar história '{story_id}': {e}", exc_info=True)
             MessageBox.error(
                 self._parent_widget, "Erro ao Duplicar História", str(e)
             )
@@ -251,6 +278,7 @@ class StoryController:
                 self._refresh_view()
 
         except Exception as e:
+            logger.error(f"Erro ao atualizar campo '{field}' da história '{story_id}': {e}", exc_info=True)
             MessageBox.error(
                 self._parent_widget, "Erro ao Atualizar Campo", str(e)
             )

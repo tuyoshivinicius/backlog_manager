@@ -1,4 +1,5 @@
 """Caso de uso para atualizar configuração."""
+import logging
 from datetime import date
 from typing import Optional, Tuple
 
@@ -6,6 +7,8 @@ from backlog_manager.application.dto.configuration_dto import ConfigurationDTO
 from backlog_manager.application.dto.converters import configuration_to_dto
 from backlog_manager.application.interfaces.repositories.configuration_repository import ConfigurationRepository
 from backlog_manager.domain.entities.configuration import Configuration
+
+logger = logging.getLogger(__name__)
 
 
 class UpdateConfigurationUseCase:
@@ -48,8 +51,18 @@ class UpdateConfigurationUseCase:
         Raises:
             ValueError: Se valores inválidos (ex: data em fim de semana)
         """
+        logger.info(
+            f"Atualizando configuração: story_points_per_sprint={story_points_per_sprint}, "
+            f"workdays_per_sprint={workdays_per_sprint}, roadmap_start_date={roadmap_start_date}"
+        )
+
         # 1. Buscar configuração atual
         current = self._configuration_repository.get()
+        logger.debug(
+            f"Configuração atual: story_points_per_sprint={current.story_points_per_sprint}, "
+            f"workdays_per_sprint={current.workdays_per_sprint}, "
+            f"roadmap_start_date={current.roadmap_start_date}"
+        )
 
         # 2. Verificar se houve mudança
         requires_recalculation = (
@@ -58,15 +71,25 @@ class UpdateConfigurationUseCase:
             or roadmap_start_date != current.roadmap_start_date
         )
 
+        if requires_recalculation:
+            logger.info("Mudanças detectadas - recálculo de cronograma será necessário")
+        else:
+            logger.debug("Nenhuma mudança detectada - recálculo não necessário")
+
         # 3. Criar nova configuração (validação acontece no __post_init__)
         new_config = Configuration(
             story_points_per_sprint=story_points_per_sprint,
             workdays_per_sprint=workdays_per_sprint,
             roadmap_start_date=roadmap_start_date,
         )
+        logger.debug("Nova configuração validada")
 
         # 4. Persistir
         self._configuration_repository.save(new_config)
+        logger.info(
+            f"Configuração atualizada: velocity={new_config.velocity_per_day:.2f} pts/dia, "
+            f"requer_recalculo={requires_recalculation}"
+        )
 
         # 5. Retornar (DTO, flag_recalculo)
         return configuration_to_dto(new_config), requires_recalculation

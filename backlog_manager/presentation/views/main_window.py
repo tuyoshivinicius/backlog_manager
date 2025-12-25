@@ -34,6 +34,8 @@ class MainWindow(QMainWindow):
     new_developer_requested = Signal()
     manage_developers_requested = Signal()
 
+    manage_features_requested = Signal()
+
     calculate_schedule_requested = Signal()
     allocate_developers_requested = Signal()
 
@@ -138,6 +140,15 @@ class MainWindow(QMainWindow):
         move_down_action.setStatusTip("Diminui prioridade da história")
         move_down_action.triggered.connect(self.move_priority_down_requested.emit)
         story_menu.addAction(move_down_action)
+
+        # Menu Feature
+        feature_menu = menu_bar.addMenu("&Feature")
+
+        manage_features_action = QAction("&Gerenciar Features", self)
+        manage_features_action.setShortcut(QKeySequence("Ctrl+Shift+F"))
+        manage_features_action.setStatusTip("Gerencia features e ondas de entrega")
+        manage_features_action.triggered.connect(self.manage_features_requested.emit)
+        feature_menu.addAction(manage_features_action)
 
         # Menu Desenvolvedor
         dev_menu = menu_bar.addMenu("&Desenvolvedor")

@@ -20,6 +20,7 @@ from PySide6.QtCore import Signal, Qt
 
 from backlog_manager.application.dto.story_dto import StoryDTO
 from backlog_manager.application.dto.developer_dto import DeveloperDTO
+from backlog_manager.application.dto.feature_dto import FeatureDTO
 from backlog_manager.domain.value_objects.story_status import StoryStatus
 
 
@@ -34,6 +35,7 @@ class StoryFormDialog(QDialog):
         parent=None,
         story: Optional[StoryDTO] = None,
         developers: Optional[List[DeveloperDTO]] = None,
+        features: Optional[List[FeatureDTO]] = None,
         all_stories: Optional[List[StoryDTO]] = None,
     ):
         """
@@ -43,11 +45,13 @@ class StoryFormDialog(QDialog):
             parent: Widget pai
             story: História a editar (None para criar nova)
             developers: Lista de desenvolvedores disponíveis
+            features: Lista de features disponíveis
             all_stories: Lista de todas as histórias (para dependências)
         """
         super().__init__(parent)
         self._story = story
         self._developers = developers or []
+        self._features = features or []
         self._all_stories = all_stories or []
         self._selected_dependencies = []
         self._is_edit_mode = story is not None
@@ -83,6 +87,16 @@ class StoryFormDialog(QDialog):
         self._component_input = QLineEdit()
         self._component_input.setPlaceholderText("Ex: Login, Dashboard")
         form_layout.addRow("Component*:", self._component_input)
+
+        # Feature
+        self._feature_combo = QComboBox()
+        self._feature_combo.addItem("(Nenhuma)", None)
+        # Ordenar features por onda
+        sorted_features = sorted(self._features, key=lambda f: f.wave)
+        for feature in sorted_features:
+            display_text = f"Onda {feature.wave}: {feature.name} (ID: {feature.id})"
+            self._feature_combo.addItem(display_text, feature.id)
+        form_layout.addRow("Feature:", self._feature_combo)
 
         # Nome
         self._name_input = QLineEdit()
@@ -204,6 +218,13 @@ class StoryFormDialog(QDialog):
         self._component_input.setText(story.component)
         self._name_input.setText(story.name)
 
+        # Feature
+        if story.feature_id:
+            for i in range(self._feature_combo.count()):
+                if self._feature_combo.itemData(i) == story.feature_id:
+                    self._feature_combo.setCurrentIndex(i)
+                    break
+
         # Story Point
         sp_idx = self._story_point_combo.findText(str(story.story_point))
         if sp_idx >= 0:
@@ -298,6 +319,7 @@ class StoryFormDialog(QDialog):
         form_data = {
             "component": self._component_input.text().strip(),
             "name": self._name_input.text().strip(),
+            "feature_id": self._feature_combo.currentData(),
             "story_point": int(self._story_point_combo.currentText()),
             "status": self._status_combo.currentText(),
             "developer_id": self._developer_combo.currentData(),

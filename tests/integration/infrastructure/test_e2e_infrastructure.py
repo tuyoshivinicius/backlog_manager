@@ -82,19 +82,21 @@ def test_full_flow_excel_import_to_database_to_export(tmp_path):
     wb_export = load_workbook(export_file)
     ws_export = wb_export.active
 
-    # Validar cabeçalho
+    # Validar cabeçalho (nova ordem: Prioridade, Feature, Onda, ID, Component, ...)
     assert ws_export.cell(1, 1).value == "Prioridade"
-    assert ws_export.cell(1, 2).value == "ID"
-    assert ws_export.cell(1, 3).value == "Component"
+    assert ws_export.cell(1, 2).value == "Feature"
+    assert ws_export.cell(1, 3).value == "Onda"
+    assert ws_export.cell(1, 4).value == "ID"
+    assert ws_export.cell(1, 5).value == "Component"
 
-    # Validar dados
-    assert ws_export.cell(2, 2).value == "US-001"
-    assert ws_export.cell(2, 3).value == "Autenticação"
-    assert ws_export.cell(2, 4).value == "Login"
-    assert ws_export.cell(2, 8).value == 5  # Story Point
+    # Validar dados (colunas deslocadas +2 por Feature e Onda)
+    assert ws_export.cell(2, 4).value == "US-001"  # ID na coluna 4
+    assert ws_export.cell(2, 5).value == "Autenticação"  # Component na coluna 5
+    assert ws_export.cell(2, 6).value == "Login"  # Nome na coluna 6
+    assert ws_export.cell(2, 10).value == 5  # Story Point na coluna 10
 
-    assert ws_export.cell(3, 2).value == "US-002"
-    assert ws_export.cell(4, 2).value == "US-003"
+    assert ws_export.cell(3, 4).value == "US-002"
+    assert ws_export.cell(4, 4).value == "US-003"
 
 
 def test_transaction_rollback_on_error(tmp_path):
@@ -113,6 +115,7 @@ def test_transaction_rollback_on_error(tmp_path):
         id="US-001",
         component="F1",
         name="S1",
+        feature_id="feature_default",
         status=StoryStatus.BACKLOG,
         priority=0,
         developer_id=None,
@@ -161,6 +164,7 @@ def test_developer_and_story_relationship(tmp_path):
         id="US-001",
         component="F1",
         name="S1",
+        feature_id="feature_default",
         status=StoryStatus.BACKLOG,
         priority=0,
         developer_id="DEV-001",

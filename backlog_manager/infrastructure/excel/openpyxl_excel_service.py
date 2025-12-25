@@ -1,4 +1,5 @@
 """Implementação do Excel Service usando openpyxl."""
+import logging
 from datetime import date
 from pathlib import Path
 from typing import Any, List, Tuple, Set, Optional
@@ -12,6 +13,8 @@ from backlog_manager.application.dto.story_dto import StoryDTO
 from backlog_manager.domain.entities.story import Story
 from backlog_manager.domain.value_objects.story_point import StoryPoint
 from backlog_manager.domain.value_objects.story_status import StoryStatus
+
+logger = logging.getLogger(__name__)
 
 
 class OpenpyxlExcelService(ExcelService):
@@ -32,6 +35,8 @@ class OpenpyxlExcelService(ExcelService):
     # Colunas do export
     EXPORT_COLUMNS = [
         "Prioridade",
+        "Feature",
+        "Onda",
         "ID",
         "Component",
         "Nome",
@@ -55,6 +60,8 @@ class OpenpyxlExcelService(ExcelService):
         "status": ["status"],
         "desenvolvedor": ["desenvolvedor", "developer", "developer_id"],
         "prioridade": ["prioridade", "priority"],
+        "feature": ["feature"],
+        "onda": ["onda", "wave"],
     }
 
     def _detect_and_map_columns(self, header: List[Any]) -> dict[str, int]:
@@ -168,176 +175,211 @@ class OpenpyxlExcelService(ExcelService):
             FileNotFoundError: Se arquivo não existe
             ValueError: Se colunas obrigatórias ausentes
         """
+        logger.info(f"Iniciando importação de Excel: '{filepath}'")
+
         if existing_ids is None:
             existing_ids = set()
 
+        logger.debug(f"IDs existentes no banco: {len(existing_ids)}")
+
         if not Path(filepath).exists():
+            logger.error(f"Arquivo não encontrado: '{filepath}'")
             raise FileNotFoundError(f"Arquivo não encontrado: {filepath}")
 
-        workbook = load_workbook(filepath)
-        sheet = workbook.active
+        try:
+            workbook = load_workbook(filepath)
+            sheet = workbook.active
+            logger.debug(f"Arquivo Excel carregado com sucesso: '{filepath}'")
 
-        # Detectar e mapear colunas (case-insensitive, flexível)
-        header = [cell.value for cell in sheet[1]]
-        column_map = self._detect_and_map_columns(header)
-        columns_present = self._get_present_columns(column_map)
+            # Detectar e mapear colunas (case-insensitive, flexível)
+            header = [cell.value for cell in sheet[1]]
+            column_map = self._detect_and_map_columns(header)
+            columns_present = self._get_present_columns(column_map)
+            logger.debug(f"Colunas detectadas: {sorted(columns_present)}")
 
-        # Inicializar estatísticas
-        stats: dict[str, Any] = {
-            "total_processadas": 0,
-            "total_importadas": 0,
-            "ignoradas_duplicadas": 0,
-            "ignoradas_invalidas": 0,
-            "deps_ignoradas": 0,
-            "warnings": []
-        }
+            # Inicializar estatísticas
+            stats: dict[str, Any] = {
+                "total_processadas": 0,
+                "total_importadas": 0,
+                "ignoradas_duplicadas": 0,
+                "ignoradas_invalidas": 0,
+                "deps_ignoradas": 0,
+                "warnings": []
+            }
 
-        temp_stories = []  # Lista temporária: (story_id, story_dto, row_num, deps_value)
-        id_counts: dict[str, int] = {}     # Mapear ID → contagem de ocorrências
-        generated_id_counter = 1
+            temp_stories = []  # Lista temporária: (story_id, story_dto, row_num, deps_value)
+            id_counts: dict[str, int] = {}     # Mapear ID → contagem de ocorrências
+            generated_id_counter = 1
 
-        # FASE 1: Processar todas as linhas e detectar duplicatas
-        for row_num, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
-            stats["total_processadas"] += 1
+            # FASE 1: Processar todas as linhas e detectar duplicatas
+            logger.debug("FASE 1: Processando linhas e detectando duplicatas")
+            for row_num, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+                stats["total_processadas"] += 1
 
-            # Extrair valores usando mapeamento flexível
-            id_value = self._extract_value(row, column_map, "id")
-            component = self._extract_value(row, column_map, "component")
-            name = self._extract_value(row, column_map, "nome")
-            sp_value = self._extract_value(row, column_map, "story_point")
-            deps_value = self._extract_value(row, column_map, "deps")
-            status = self._extract_value(row, column_map, "status")
-            desenvolvedor = self._extract_value(row, column_map, "desenvolvedor")
-            prioridade = self._extract_value(row, column_map, "prioridade")
+                # Extrair valores usando mapeamento flexível
+                id_value = self._extract_value(row, column_map, "id")
+                component = self._extract_value(row, column_map, "component")
+                name = self._extract_value(row, column_map, "nome")
+                sp_value = self._extract_value(row, column_map, "story_point")
+                deps_value = self._extract_value(row, column_map, "deps")
+                status = self._extract_value(row, column_map, "status")
+                desenvolvedor = self._extract_value(row, column_map, "desenvolvedor")
+                prioridade = self._extract_value(row, column_map, "prioridade")
 
-            # Validar campos obrigatórios (Component e Nome)
-            if not component or str(component).strip() == "":
-                stats["ignoradas_invalidas"] += 1
-                stats["warnings"].append(f"Linha {row_num}: Component vazio - linha ignorada")
-                continue
+                # Validar campos obrigatórios (Component e Nome)
+                if not component or str(component).strip() == "":
+                    stats["ignoradas_invalidas"] += 1
+                    stats["warnings"].append(f"Linha {row_num}: Component vazio - linha ignorada")
+                    continue
 
-            if not name or str(name).strip() == "":
-                stats["ignoradas_invalidas"] += 1
-                stats["warnings"].append(f"Linha {row_num}: Nome vazio - linha ignorada")
-                continue
+                if not name or str(name).strip() == "":
+                    stats["ignoradas_invalidas"] += 1
+                    stats["warnings"].append(f"Linha {row_num}: Nome vazio - linha ignorada")
+                    continue
 
-            # Gerar ID se vazio
-            if id_value and str(id_value).strip():
-                story_id = str(id_value).strip()
-            else:
-                story_id = f"US-{generated_id_counter:03d}"
-                generated_id_counter += 1
+                # Gerar ID se vazio
+                if id_value and str(id_value).strip():
+                    story_id = str(id_value).strip()
+                else:
+                    story_id = f"US-{generated_id_counter:03d}"
+                    generated_id_counter += 1
 
-            # Contar ocorrências de ID (para detectar duplicatas)
-            id_counts[story_id] = id_counts.get(story_id, 0) + 1
+                # Contar ocorrências de ID (para detectar duplicatas)
+                id_counts[story_id] = id_counts.get(story_id, 0) + 1
 
-            # Validar Story Point (opcional)
-            sp_validated = None
-            if sp_value is not None and str(sp_value).strip() != "":
-                try:
-                    sp_validated = int(sp_value)
-                    if sp_validated not in [3, 5, 8, 13]:
+                # Validar Story Point (opcional)
+                sp_validated = None
+                if sp_value is not None and str(sp_value).strip() != "":
+                    try:
+                        sp_validated = int(sp_value)
+                        if sp_validated not in [3, 5, 8, 13]:
+                            stats["ignoradas_invalidas"] += 1
+                            stats["warnings"].append(
+                                f"Linha {row_num}: Story Point inválido ({sp_value}) - linha ignorada"
+                            )
+                            continue
+                    except (ValueError, TypeError):
                         stats["ignoradas_invalidas"] += 1
                         stats["warnings"].append(
                             f"Linha {row_num}: Story Point inválido ({sp_value}) - linha ignorada"
                         )
                         continue
-                except (ValueError, TypeError):
-                    stats["ignoradas_invalidas"] += 1
+
+                # Processar status (com fallback para BACKLOG)
+                status_str = "BACKLOG"
+                if status and str(status).strip():
+                    status_str = str(status).strip().upper()
+                    # Validar se status é válido
+                    valid_statuses = ["BACKLOG", "EXECUCAO", "TESTES", "CONCLUIDO", "IMPEDIDO"]
+                    if status_str not in valid_statuses:
+                        stats["warnings"].append(
+                            f"Linha {row_num}: Status inválido '{status}', usando 'BACKLOG'"
+                        )
+                        status_str = "BACKLOG"
+
+                # Processar desenvolvedor (opcional)
+                developer_id = None
+                if desenvolvedor and str(desenvolvedor).strip():
+                    developer_id = str(desenvolvedor).strip()
+
+                # Processar prioridade (com fallback para 0)
+                priority_value = 0
+                if prioridade is not None:
+                    try:
+                        priority_value = int(prioridade)
+                        if priority_value < 0:
+                            priority_value = 0
+                    except (ValueError, TypeError):
+                        priority_value = 0
+
+                # Criar DTO temporário (dependências serão processadas depois)
+                story_dto = StoryDTO(
+                    id=story_id,
+                    component=str(component).strip(),
+                    name=str(name).strip(),
+                    feature_id="feature_default",  # Usa feature padrão se não especificada
+                    status=status_str,
+                    priority=priority_value,
+                    developer_id=developer_id,
+                    dependencies=[],  # Processado na FASE 3
+                    story_point=sp_validated,
+                    start_date=None,
+                    end_date=None,
+                    duration=None,
+                )
+
+                temp_stories.append((story_id, story_dto, row_num, deps_value))
+
+            logger.debug(f"FASE 1 concluída: {len(temp_stories)} histórias processadas")
+
+            # FASE 2: Identificar IDs duplicados
+            logger.debug("FASE 2: Identificando IDs duplicados")
+            duplicated_ids = {story_id for story_id, count in id_counts.items() if count > 1}
+            if duplicated_ids:
+                logger.warning(f"IDs duplicados encontrados: {len(duplicated_ids)} IDs afetam múltiplas linhas")
+
+            # Registrar warnings para IDs duplicados
+            for story_id in duplicated_ids:
+                count = id_counts[story_id]
+                stats["ignoradas_duplicadas"] += count
+                for i in range(count):
                     stats["warnings"].append(
-                        f"Linha {row_num}: Story Point inválido ({sp_value}) - linha ignorada"
+                        f"ID '{story_id}' duplicado na planilha - {count} linhas ignoradas"
                     )
+
+            # FASE 3: Filtrar histórias válidas (sem duplicatas) e processar dependências
+            logger.debug("FASE 3: Processando dependências")
+            valid_stories = []
+            all_story_ids = {sid for sid, _, _, _ in temp_stories if sid not in duplicated_ids}
+
+            for story_id, story_dto, row_num, deps_value in temp_stories:
+                # Ignorar histórias com ID duplicado
+                if story_id in duplicated_ids:
                     continue
 
-            # Processar status (com fallback para BACKLOG)
-            status_str = "BACKLOG"
-            if status and str(status).strip():
-                status_str = str(status).strip().upper()
-                # Validar se status é válido
-                valid_statuses = ["BACKLOG", "EXECUCAO", "TESTES", "CONCLUIDO", "IMPEDIDO"]
-                if status_str not in valid_statuses:
+                # Processar dependências
+                valid_deps, invalid_deps = self._process_dependencies(
+                    deps_value, all_story_ids, existing_ids, story_id
+                )
+
+                story_dto.dependencies = valid_deps
+
+                # Registrar dependências inválidas
+                for invalid_dep in invalid_deps:
+                    stats["deps_ignoradas"] += 1
                     stats["warnings"].append(
-                        f"Linha {row_num}: Status inválido '{status}', usando 'BACKLOG'"
+                        f"Linha {row_num}: Dependência '{invalid_dep}' não encontrada - removida da história '{story_id}'"
                     )
-                    status_str = "BACKLOG"
 
-            # Processar desenvolvedor (opcional)
-            developer_id = None
-            if desenvolvedor and str(desenvolvedor).strip():
-                developer_id = str(desenvolvedor).strip()
+                valid_stories.append(story_dto)
 
-            # Processar prioridade (com fallback para 0)
-            priority_value = 0
-            if prioridade is not None:
-                try:
-                    priority_value = int(prioridade)
-                    if priority_value < 0:
-                        priority_value = 0
-                except (ValueError, TypeError):
-                    priority_value = 0
+            logger.debug(f"FASE 3 concluída: {len(valid_stories)} histórias válidas")
 
-            # Criar DTO temporário (dependências serão processadas depois)
-            story_dto = StoryDTO(
-                id=story_id,
-                component=str(component).strip(),
-                name=str(name).strip(),
-                status=status_str,
-                priority=priority_value,
-                developer_id=developer_id,
-                dependencies=[],  # Processado na FASE 3
-                story_point=sp_validated,
-                start_date=None,
-                end_date=None,
-                duration=None,
+            # FASE 4: Ajustar prioridades sequencialmente (se coluna prioridade NÃO presente)
+            if "prioridade" not in columns_present:
+                logger.debug("FASE 4: Ajustando prioridades sequencialmente (coluna 'prioridade' ausente)")
+                for idx, story_dto in enumerate(valid_stories, start=1):
+                    story_dto.priority = idx
+
+            stats["total_importadas"] = len(valid_stories)
+
+            logger.info(
+                f"Importação concluída: {stats['total_importadas']} histórias importadas, "
+                f"{stats['ignoradas_duplicadas']} duplicadas, "
+                f"{stats['ignoradas_invalidas']} inválidas, "
+                f"{stats['deps_ignoradas']} dependências removidas"
             )
 
-            temp_stories.append((story_id, story_dto, row_num, deps_value))
+            return valid_stories, stats, columns_present
 
-        # FASE 2: Identificar IDs duplicados
-        duplicated_ids = {story_id for story_id, count in id_counts.items() if count > 1}
-
-        # Registrar warnings para IDs duplicados
-        for story_id in duplicated_ids:
-            count = id_counts[story_id]
-            stats["ignoradas_duplicadas"] += count
-            for i in range(count):
-                stats["warnings"].append(
-                    f"ID '{story_id}' duplicado na planilha - {count} linhas ignoradas"
-                )
-
-        # FASE 3: Filtrar histórias válidas (sem duplicatas) e processar dependências
-        valid_stories = []
-        all_story_ids = {sid for sid, _, _, _ in temp_stories if sid not in duplicated_ids}
-
-        for story_id, story_dto, row_num, deps_value in temp_stories:
-            # Ignorar histórias com ID duplicado
-            if story_id in duplicated_ids:
-                continue
-
-            # Processar dependências
-            valid_deps, invalid_deps = self._process_dependencies(
-                deps_value, all_story_ids, existing_ids, story_id
-            )
-
-            story_dto.dependencies = valid_deps
-
-            # Registrar dependências inválidas
-            for invalid_dep in invalid_deps:
-                stats["deps_ignoradas"] += 1
-                stats["warnings"].append(
-                    f"Linha {row_num}: Dependência '{invalid_dep}' não encontrada - removida da história '{story_id}'"
-                )
-
-            valid_stories.append(story_dto)
-
-        # FASE 4: Ajustar prioridades sequencialmente (se coluna prioridade NÃO presente)
-        if "prioridade" not in columns_present:
-            for idx, story_dto in enumerate(valid_stories, start=1):
-                story_dto.priority = idx
-
-        stats["total_importadas"] = len(valid_stories)
-
-        return valid_stories, stats, columns_present
+        except FileNotFoundError:
+            raise
+        except ValueError as e:
+            logger.error(f"Erro de validação ao importar Excel: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Erro ao importar arquivo Excel '{filepath}': {e}", exc_info=True)
+            raise
 
     def _process_dependencies(
         self,
@@ -389,52 +431,63 @@ class OpenpyxlExcelService(ExcelService):
             filepath: Caminho do arquivo .xlsx a criar
             stories: Lista de histórias a exportar (DTOs)
         """
-        workbook = Workbook()
-        sheet = workbook.active
-        sheet.title = "Backlog"
+        logger.info(f"Iniciando exportação de {len(stories)} histórias para Excel: '{filepath}'")
 
-        # Escrever cabeçalho
-        for col_num, column_name in enumerate(self.EXPORT_COLUMNS, start=1):
-            cell = sheet.cell(row=1, column=col_num)
-            cell.value = column_name
-            cell.font = Font(bold=True, size=11)
-            cell.fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
-            cell.font = Font(color="FFFFFF", bold=True)
-            cell.alignment = Alignment(horizontal="center", vertical="center")
+        try:
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.title = "Backlog"
+            logger.debug("Workbook criado")
 
-        # Escrever dados
-        for row_num, story in enumerate(stories, start=2):
-            sheet.cell(row=row_num, column=1).value = story.priority
-            sheet.cell(row=row_num, column=2).value = story.id
-            sheet.cell(row=row_num, column=3).value = story.component
-            sheet.cell(row=row_num, column=4).value = story.name
-            sheet.cell(row=row_num, column=5).value = story.status
-            sheet.cell(row=row_num, column=6).value = story.developer_id or ""
-            sheet.cell(row=row_num, column=7).value = ", ".join(story.dependencies) if story.dependencies else ""
-            sheet.cell(row=row_num, column=8).value = story.story_point
-            sheet.cell(row=row_num, column=9).value = story.start_date.strftime("%d/%m/%Y") if story.start_date else ""
-            sheet.cell(row=row_num, column=10).value = story.end_date.strftime("%d/%m/%Y") if story.end_date else ""
-            sheet.cell(row=row_num, column=11).value = story.duration or ""
+            # Escrever cabeçalho
+            for col_num, column_name in enumerate(self.EXPORT_COLUMNS, start=1):
+                cell = sheet.cell(row=1, column=col_num)
+                cell.value = column_name
+                cell.font = Font(bold=True, size=11)
+                cell.fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+                cell.font = Font(color="FFFFFF", bold=True)
+                cell.alignment = Alignment(horizontal="center", vertical="center")
 
-        # Auto-ajustar largura das colunas
-        for col_num in range(1, len(self.EXPORT_COLUMNS) + 1):
-            column_letter = get_column_letter(col_num)
-            max_length = 0
+            # Escrever dados
+            for row_num, story in enumerate(stories, start=2):
+                sheet.cell(row=row_num, column=1).value = story.priority
+                sheet.cell(row=row_num, column=2).value = story.feature_name or ""
+                sheet.cell(row=row_num, column=3).value = story.wave or ""
+                sheet.cell(row=row_num, column=4).value = story.id
+                sheet.cell(row=row_num, column=5).value = story.component
+                sheet.cell(row=row_num, column=6).value = story.name
+                sheet.cell(row=row_num, column=7).value = story.status
+                sheet.cell(row=row_num, column=8).value = story.developer_id or ""
+                sheet.cell(row=row_num, column=9).value = ", ".join(story.dependencies) if story.dependencies else ""
+                sheet.cell(row=row_num, column=10).value = story.story_point
+                sheet.cell(row=row_num, column=11).value = story.start_date.strftime("%d/%m/%Y") if story.start_date else ""
+                sheet.cell(row=row_num, column=12).value = story.end_date.strftime("%d/%m/%Y") if story.end_date else ""
+                sheet.cell(row=row_num, column=13).value = story.duration or ""
 
-            for cell in sheet[column_letter]:
-                if cell.value:
-                    max_length = max(max_length, len(str(cell.value)))
+            # Auto-ajustar largura das colunas
+            for col_num in range(1, len(self.EXPORT_COLUMNS) + 1):
+                column_letter = get_column_letter(col_num)
+                max_length = 0
 
-            sheet.column_dimensions[column_letter].width = min(max_length + 2, 50)
+                for cell in sheet[column_letter]:
+                    if cell.value:
+                        max_length = max(max_length, len(str(cell.value)))
 
-        # Adicionar bordas
-        thin_border = Border(
-            left=Side(style="thin"), right=Side(style="thin"), top=Side(style="thin"), bottom=Side(style="thin")
-        )
+                sheet.column_dimensions[column_letter].width = min(max_length + 2, 50)
 
-        for row in sheet.iter_rows(min_row=1, max_row=len(stories) + 1):
-            for cell in row:
-                cell.border = thin_border
+            # Adicionar bordas
+            thin_border = Border(
+                left=Side(style="thin"), right=Side(style="thin"), top=Side(style="thin"), bottom=Side(style="thin")
+            )
 
-        # Salvar arquivo
-        workbook.save(filepath)
+            for row in sheet.iter_rows(min_row=1, max_row=len(stories) + 1):
+                for cell in row:
+                    cell.border = thin_border
+
+            # Salvar arquivo
+            workbook.save(filepath)
+            logger.info(f"Exportação concluída com sucesso: {len(stories)} histórias salvas em '{filepath}'")
+
+        except Exception as e:
+            logger.error(f"Erro ao exportar backlog para Excel '{filepath}': {e}", exc_info=True)
+            raise

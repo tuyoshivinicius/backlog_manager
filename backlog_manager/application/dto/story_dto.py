@@ -18,12 +18,15 @@ class StoryDTO:
     name: str
     status: str
     priority: int
+    feature_id: str
     developer_id: Optional[str]
     dependencies: List[str]
     story_point: Optional[int]
     start_date: Optional[date]
     end_date: Optional[date]
     duration: Optional[int]
+    feature_name: Optional[str] = None
+    wave: Optional[int] = None
 
     def __post_init__(self) -> None:
         """Garante que dependencies é sempre uma lista."""

@@ -1,10 +1,14 @@
 """Caso de uso para duplicar história."""
+import logging
+
 from backlog_manager.application.dto.converters import story_to_dto
 from backlog_manager.application.dto.story_dto import StoryDTO
 from backlog_manager.application.interfaces.repositories.story_repository import StoryRepository
 from backlog_manager.domain.entities.story import Story
 from backlog_manager.domain.exceptions.domain_exceptions import StoryNotFoundException
 from backlog_manager.domain.value_objects.story_status import StoryStatus
+
+logger = logging.getLogger(__name__)
 
 
 class DuplicateStoryUseCase:
@@ -41,15 +45,19 @@ class DuplicateStoryUseCase:
         Raises:
             StoryNotFoundException: Se história original não existe
         """
+        logger.info(f"Duplicando história: id='{story_id}'")
+
         # 1. Buscar original
         original = self._story_repository.find_by_id(story_id)
         if original is None:
+            logger.error(f"História original não encontrada: id='{story_id}'")
             raise StoryNotFoundException(story_id)
 
         # 2. Gerar novo ID
         all_stories = self._story_repository.find_all()
         next_number = len(all_stories) + 1
         new_id = f"US-{next_number:03d}"
+        logger.debug(f"Novo ID gerado: '{new_id}'")
 
         # 3. Copiar dados e resetar campos
         new_story = Story(
@@ -68,6 +76,7 @@ class DuplicateStoryUseCase:
 
         # 4. Persistir
         self._story_repository.save(new_story)
+        logger.info(f"História duplicada com sucesso: original='{story_id}', nova='{new_id}'")
 
         # 5. Retornar DTO
         return story_to_dto(new_story)

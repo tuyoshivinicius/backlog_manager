@@ -1,8 +1,12 @@
 """Caso de uso para buscar história por ID."""
+import logging
+
 from backlog_manager.application.dto.converters import story_to_dto
 from backlog_manager.application.dto.story_dto import StoryDTO
 from backlog_manager.application.interfaces.repositories.story_repository import StoryRepository
 from backlog_manager.domain.exceptions.domain_exceptions import StoryNotFoundException
+
+logger = logging.getLogger(__name__)
 
 
 class GetStoryUseCase:
@@ -36,9 +40,12 @@ class GetStoryUseCase:
         Raises:
             StoryNotFoundException: Se história não existe
         """
+        logger.debug(f"Buscando história: id='{story_id}'")
         story = self._story_repository.find_by_id(story_id)
 
         if story is None:
+            logger.error(f"História não encontrada: id='{story_id}'")
             raise StoryNotFoundException(story_id)
 
+        logger.debug(f"História encontrada: id='{story_id}', name='{story.name}'")
         return story_to_dto(story)

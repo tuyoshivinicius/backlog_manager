@@ -16,7 +16,7 @@ class TestDomainExceptions:
         exc = CyclicDependencyException(cycle)
 
         assert exc.cycle_path == cycle
-        assert "A → B → C → A" in str(exc)
+        assert "A -> B -> C -> A" in str(exc)
         assert isinstance(exc, DomainException)
 
     def test_story_not_found_exception(self) -> None:

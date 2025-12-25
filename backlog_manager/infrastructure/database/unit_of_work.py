@@ -33,6 +33,7 @@ class UnitOfWork:
         """
         self._connection = SQLiteConnection(db_path)
         self._conn = self._connection.get_connection()
+        self._committed = False
 
         # Repositories
         self.stories: StoryRepository = SQLiteStoryRepository(self._connection)
@@ -45,14 +46,19 @@ class UnitOfWork:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Finaliza transação (rollback em caso de exceção)."""
+        """Finaliza transação (rollback em caso de exceção ou falta de commit)."""
         if exc_type is not None:
             self.rollback()
-        # Não fazer commit automático - deve ser explícito
+        elif not self._committed:
+            # Se não houve commit explícito, fazer rollback para liberar locks
+            self.rollback()
+        # Reset flag
+        self._committed = False
 
     def commit(self) -> None:
         """Confirma transação."""
         self._conn.commit()
+        self._committed = True
 
     def rollback(self) -> None:
         """Desfaz transação."""

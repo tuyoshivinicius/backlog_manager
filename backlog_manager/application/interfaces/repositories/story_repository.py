@@ -68,3 +68,13 @@ class StoryRepository(ABC):
             True se existe, False caso contrário
         """
         pass
+
+    @abstractmethod
+    def load_feature(self, story: Story) -> None:
+        """
+        Carrega a feature associada à história.
+
+        Args:
+            story: História para carregar a feature
+        """
+        pass

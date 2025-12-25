@@ -1,4 +1,5 @@
 """Caso de uso para calcular cronograma completo."""
+import logging
 from datetime import date
 
 from backlog_manager.application.dto.backlog_dto import BacklogDTO
@@ -7,6 +8,8 @@ from backlog_manager.application.interfaces.repositories.configuration_repositor
 from backlog_manager.application.interfaces.repositories.story_repository import StoryRepository
 from backlog_manager.domain.services.backlog_sorter import BacklogSorter
 from backlog_manager.domain.services.schedule_calculator import ScheduleCalculator
+
+logger = logging.getLogger(__name__)
 
 
 class CalculateScheduleUseCase:
@@ -56,34 +59,66 @@ class CalculateScheduleUseCase:
         Raises:
             CyclicDependencyException: Se houver ciclo nas dependências
         """
+        logger.info("Iniciando cálculo de cronograma")
+
         # 1. Buscar dados
         stories = self._story_repository.find_all()
         config = self._configuration_repository.get()
 
         if not stories:
+            logger.info("Nenhuma história encontrada, retornando backlog vazio")
             return BacklogDTO(stories=[], total_count=0, total_story_points=0, estimated_duration_days=0)
 
+        logger.info(f"Encontradas {len(stories)} histórias para processar")
+
         # 1.1. Limpar todos os desenvolvedores (reset completo)
+        deallocated_count = 0
         for story in stories:
             if story.developer_id:
                 story.deallocate_developer()
                 self._story_repository.save(story)
+                deallocated_count += 1
+
+        if deallocated_count > 0:
+            logger.info(f"Desalocados {deallocated_count} desenvolvedores (reset completo)")
 
         # 2. Ordenar backlog (valida ciclos internamente)
+        logger.info("Ordenando histórias (dependências -> onda -> prioridade)")
         sorted_stories = self._backlog_sorter.sort(stories)
+        logger.info(f"Ordenação concluída: {len(sorted_stories)} histórias")
 
         # 3. Determinar data de início efetiva
         # Precedência: 1) parâmetro passado, 2) config roadmap_start_date, 3) date.today()
         effective_start_date = start_date or config.roadmap_start_date or date.today()
+        logger.info(f"Data de início do roadmap: {effective_start_date}")
 
         # 4. Calcular cronograma (datas e durações)
+        logger.info("Calculando datas de início/fim e durações")
         scheduled_stories = self._schedule_calculator.calculate(sorted_stories, config, effective_start_date)
+        logger.info("Cálculo de cronograma concluído")
 
-        # 5. Atualizar prioridades E schedule_order baseado na ordem
+        # 5. Renumerar prioridades após ordenação (wave × priority composta)
+        # Isso garante priorities sequenciais: 0, 1, 2, 3, ...
+        # Ordem final: dependências → onda → prioridade original
+        logger.info(f"Renumerando priorities para {len(scheduled_stories)} histórias após ordenação")
+
+        priority_adjustments = 0
         for index, story in enumerate(scheduled_stories):
+            old_priority = story.priority
             story.priority = index
             story.schedule_order = index  # Sincronizar schedule_order com a ordem calculada
+
+            if old_priority != index:
+                priority_adjustments += 1
+                logger.debug(
+                    f"Story {story.id} (wave={story.wave}): priority {old_priority} -> {index}"
+                )
+
             self._story_repository.save(story)
+
+        logger.info(
+            f"Renumeração concluída: {priority_adjustments} ajustes em {len(scheduled_stories)} histórias"
+        )
 
         # 6. Calcular metadados
         total_sp = sum(s.story_point.value for s in scheduled_stories)
@@ -95,6 +130,11 @@ class CalculateScheduleUseCase:
             duration_days = (last_end - first_start).days + 1
         else:
             duration_days = 0
+
+        logger.info(
+            f"Cronograma completo calculado: {len(scheduled_stories)} histórias, "
+            f"{total_sp} story points, {duration_days} dias de duração"
+        )
 
         # 7. Retornar BacklogDTO
         return BacklogDTO(

@@ -1,7 +1,11 @@
 """Caso de uso para buscar configuração."""
+import logging
+
 from backlog_manager.application.dto.configuration_dto import ConfigurationDTO
 from backlog_manager.application.dto.converters import configuration_to_dto
 from backlog_manager.application.interfaces.repositories.configuration_repository import ConfigurationRepository
+
+logger = logging.getLogger(__name__)
 
 
 class GetConfigurationUseCase:
@@ -29,5 +33,14 @@ class GetConfigurationUseCase:
         Returns:
             ConfigurationDTO com configuração atual
         """
+        logger.debug("Buscando configuração do sistema")
+
         config = self._configuration_repository.get()
+
+        logger.debug(
+            f"Configuração: story_points_per_sprint={config.story_points_per_sprint}, "
+            f"workdays_per_sprint={config.workdays_per_sprint}, "
+            f"roadmap_start_date={config.roadmap_start_date}"
+        )
+
         return configuration_to_dto(config)

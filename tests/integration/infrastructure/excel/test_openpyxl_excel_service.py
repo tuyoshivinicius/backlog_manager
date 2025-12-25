@@ -131,6 +131,7 @@ def test_export_creates_formatted_excel(excel_service, tmp_path):
             id="US-001",
             component="F1",
             name="S1",
+            feature_id="feature_default",
             status="BACKLOG",
             priority=0,
             developer_id="DEV-001",
@@ -150,20 +151,22 @@ def test_export_creates_formatted_excel(excel_service, tmp_path):
     wb = load_workbook(file_path)
     ws = wb.active
 
-    # Cabeçalho
+    # Cabeçalho (nova ordem: Prioridade, Feature, Onda, ID, Component, ...)
     assert ws.cell(1, 1).value == "Prioridade"
-    assert ws.cell(1, 2).value == "ID"
-    assert ws.cell(1, 3).value == "Component"
+    assert ws.cell(1, 2).value == "Feature"
+    assert ws.cell(1, 3).value == "Onda"
+    assert ws.cell(1, 4).value == "ID"
+    assert ws.cell(1, 5).value == "Component"
 
-    # Dados
+    # Dados (colunas deslocadas +2 por Feature e Onda)
     assert ws.cell(2, 1).value == 0  # priority
-    assert ws.cell(2, 2).value == "US-001"  # id
-    assert ws.cell(2, 3).value == "F1"  # component
-    assert ws.cell(2, 4).value == "S1"  # name
-    assert ws.cell(2, 5).value == "BACKLOG"  # status
-    assert ws.cell(2, 6).value == "DEV-001"  # developer_id
-    assert ws.cell(2, 7).value == "US-002"  # dependencies
-    assert ws.cell(2, 8).value == 5  # story_point
+    assert ws.cell(2, 4).value == "US-001"  # id (coluna 4)
+    assert ws.cell(2, 5).value == "F1"  # component (coluna 5)
+    assert ws.cell(2, 6).value == "S1"  # name (coluna 6)
+    assert ws.cell(2, 7).value == "BACKLOG"  # status (coluna 7)
+    assert ws.cell(2, 8).value == "DEV-001"  # developer_id (coluna 8)
+    assert ws.cell(2, 9).value == "US-002"  # dependencies (coluna 9)
+    assert ws.cell(2, 10).value == 5  # story_point (coluna 10)
 
 
 def test_export_multiple_stories(excel_service, tmp_path):
@@ -177,6 +180,7 @@ def test_export_multiple_stories(excel_service, tmp_path):
             id="US-001",
             component="F1",
             name="S1",
+            feature_id="feature_default",
             status="BACKLOG",
             priority=0,
             developer_id=None,
@@ -190,6 +194,7 @@ def test_export_multiple_stories(excel_service, tmp_path):
             id="US-002",
             component="F1",
             name="S2",
+            feature_id="feature_default",
             status="EXECUCAO",
             priority=1,
             developer_id="DEV-001",
@@ -203,6 +208,7 @@ def test_export_multiple_stories(excel_service, tmp_path):
             id="US-003",
             component="F2",
             name="S3",
+            feature_id="feature_default",
             status="CONCLUIDO",
             priority=2,
             developer_id="DEV-002",
@@ -222,6 +228,7 @@ def test_export_multiple_stories(excel_service, tmp_path):
 
     # Deve ter cabeçalho + 3 linhas de dados
     assert ws.max_row == 4
-    assert ws.cell(2, 2).value == "US-001"
-    assert ws.cell(3, 2).value == "US-002"
-    assert ws.cell(4, 2).value == "US-003"
+    # ID agora está na coluna 4 (após Prioridade, Feature, Onda)
+    assert ws.cell(2, 4).value == "US-001"
+    assert ws.cell(3, 4).value == "US-002"
+    assert ws.cell(4, 4).value == "US-003"

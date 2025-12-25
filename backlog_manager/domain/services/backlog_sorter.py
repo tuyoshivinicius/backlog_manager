@@ -12,9 +12,17 @@ class BacklogSorter:
 
     Ordena histórias considerando:
     1. Dependências técnicas (histórias sem dependências vêm primeiro)
-    2. Prioridade numérica (menor número = maior prioridade)
+    2. Onda da feature (ondas menores vêm primeiro)
+    3. Prioridade numérica dentro da onda (menor número = maior prioridade)
 
-    Utiliza algoritmo de Kahn para ordenação topológica.
+    Utiliza algoritmo de Kahn para ordenação topológica com prioridade composta:
+    priority_composta = (wave * 10000) + priority
+
+    Isso garante que:
+    - Ondas anteriores sempre vêm primeiro (wave * 10000 domina)
+    - Dentro da mesma onda, prioridade desempata (+ priority)
+    - Suporta até 9999 histórias por onda
+
     Complexidade: O(V + E) onde V = histórias, E = dependências
     """
 
@@ -24,16 +32,17 @@ class BacklogSorter:
 
     def sort(self, stories: list[Story]) -> list[Story]:
         """
-        Ordena lista de histórias respeitando dependências e prioridade.
+        Ordena lista de histórias respeitando dependências, ondas e prioridade.
 
         Args:
-            stories: Lista de histórias para ordenar
+            stories: Lista de histórias para ordenar (devem ter features carregadas)
 
         Returns:
             Lista ordenada de histórias
 
         Raises:
             CyclicDependencyException: Se detectado ciclo nas dependências
+            AttributeError: Se alguma história não tem feature carregada
         """
         if not stories:
             return []
@@ -46,6 +55,11 @@ class BacklogSorter:
         # Criar mapa de histórias por ID
         stories_map = {story.id: story for story in stories}
 
+        # Função auxiliar para calcular prioridade composta
+        def _composite_priority(story: Story) -> int:
+            """Calcula prioridade composta: (wave * 10000) + priority."""
+            return (story.wave * 10000) + story.priority
+
         # Calcular in-degree (número de dependências) para cada história
         in_degree: dict[str, int] = {}
         for story in stories:
@@ -57,11 +71,11 @@ class BacklogSorter:
                 in_degree[story.id] = in_degree.get(story.id, 0) + 1
 
         # Fila com histórias que não têm dependências (in-degree = 0)
-        # Ordenadas por prioridade
+        # Ordenadas por prioridade composta (wave * 10000 + priority)
         queue: deque[str] = deque()
         zero_in_degree = [story.id for story in stories if in_degree.get(story.id, 0) == 0]
-        # Ordenar por prioridade antes de adicionar na fila
-        zero_in_degree.sort(key=lambda sid: stories_map[sid].priority)
+        # Ordenar por prioridade composta antes de adicionar na fila
+        zero_in_degree.sort(key=lambda sid: _composite_priority(stories_map[sid]))
         queue.extend(zero_in_degree)
 
         # Lista resultado ordenada
@@ -79,12 +93,13 @@ class BacklogSorter:
                     # Decrementar in-degree
                     in_degree[story.id] -= 1
 
-                    # Se in-degree chegou a 0, adicionar na fila (ordenado por prioridade)
+                    # Se in-degree chegou a 0, adicionar na fila (ordenado por prioridade composta)
                     if in_degree[story.id] == 0:
-                        # Inserir na posição correta mantendo ordem de prioridade
+                        # Inserir na posição correta mantendo ordem de prioridade composta
                         inserted = False
+                        story_composite = _composite_priority(stories_map[story.id])
                         for i, existing_id in enumerate(queue):
-                            if stories_map[story.id].priority < stories_map[existing_id].priority:
+                            if story_composite < _composite_priority(stories_map[existing_id]):
                                 queue.insert(i, story.id)
                                 inserted = True
                                 break

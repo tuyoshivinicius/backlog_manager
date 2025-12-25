@@ -16,6 +16,10 @@ class StoryStatus(str, Enum):
     CONCLUIDO = "CONCLUÍDO"
     IMPEDIDO = "IMPEDIDO"
 
+    def __str__(self) -> str:
+        """Retorna a string representando o status."""
+        return self.value
+
     @classmethod
     def from_string(cls, value: str) -> "StoryStatus":
         """

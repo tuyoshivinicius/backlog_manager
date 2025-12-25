@@ -1,9 +1,12 @@
 """Caso de uso para listar desenvolvedores."""
+import logging
 from typing import List
 
 from backlog_manager.application.dto.converters import developer_to_dto
 from backlog_manager.application.dto.developer_dto import DeveloperDTO
 from backlog_manager.application.interfaces.repositories.developer_repository import DeveloperRepository
+
+logger = logging.getLogger(__name__)
 
 
 class ListDevelopersUseCase:
@@ -32,8 +35,11 @@ class ListDevelopersUseCase:
         Returns:
             Lista de DeveloperDTO ordenada alfabeticamente
         """
+        logger.debug("Listando todos os desenvolvedores")
+
         # 1. Buscar todos
         developers = self._developer_repository.find_all()
+        logger.debug(f"Encontrados {len(developers)} desenvolvedores")
 
         # 2. Ordenar por nome
         developers.sort(key=lambda d: d.name.lower())

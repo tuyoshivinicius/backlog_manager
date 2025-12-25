@@ -1,7 +1,11 @@
 """Caso de uso para deletar desenvolvedor."""
+import logging
+
 from backlog_manager.application.interfaces.repositories.developer_repository import DeveloperRepository
 from backlog_manager.application.interfaces.repositories.story_repository import StoryRepository
 from backlog_manager.domain.exceptions.domain_exceptions import DeveloperNotFoundException
+
+logger = logging.getLogger(__name__)
 
 
 class DeleteDeveloperUseCase:
@@ -35,16 +39,25 @@ class DeleteDeveloperUseCase:
         Raises:
             DeveloperNotFoundException: Se desenvolvedor não existe
         """
+        logger.info(f"Deletando desenvolvedor: id='{developer_id}'")
+
         # 1. Verificar existência
         if not self._developer_repository.exists(developer_id):
+            logger.error(f"Desenvolvedor não encontrado: id='{developer_id}'")
             raise DeveloperNotFoundException(developer_id)
 
         # 2. Remover alocação em histórias
         all_stories = self._story_repository.find_all()
+        deallocated_count = 0
         for story in all_stories:
             if story.developer_id == developer_id:
+                logger.debug(f"Desalocando história: id='{story.id}'")
                 story.deallocate_developer()
                 self._story_repository.save(story)
+                deallocated_count += 1
+
+        logger.debug(f"Total de histórias desalocadas: {deallocated_count}")
 
         # 3. Deletar desenvolvedor
         self._developer_repository.delete(developer_id)
+        logger.info(f"Desenvolvedor deletado: id='{developer_id}', histórias desalocadas: {deallocated_count}")

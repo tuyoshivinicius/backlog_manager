@@ -3,9 +3,12 @@ Controlador de operações de cronograma.
 
 Orquestra operações relacionadas a cálculo de cronograma e alocação.
 """
+import logging
 from typing import Optional
 
 from PySide6.QtWidgets import QWidget
+
+logger = logging.getLogger(__name__)
 
 from backlog_manager.application.use_cases.schedule.allocate_developers import (
     AllocateDevelopersUseCase,
