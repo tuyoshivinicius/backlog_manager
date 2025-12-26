@@ -36,6 +36,13 @@ class ScheduleCalculator:
     - Duração em dias úteis baseada em Story Points e velocidade
     - Datas de início e fim considerando apenas dias úteis (seg-sex)
     - Sequenciamento: histórias do mesmo dev executam em sequência
+    - Barreira de onda: histórias de onda N só iniciam após onda N-1 terminar
+
+    Barreira de Onda (Wave Barrier):
+    - Ondas são agrupamentos de histórias por feature.wave
+    - Histórias de onda 2 só podem iniciar após TODAS as histórias de onda 1 terminarem
+    - Wave 0 (histórias sem feature) não bloqueia outras ondas
+    - Suporta ondas não contíguas (ex: 1, 3, 5 sem 2, 4)
     """
 
     def calculate(
@@ -64,6 +71,9 @@ class ScheduleCalculator:
         # Rastrear última data de fim por desenvolvedor
         dev_last_end_date: dict[str, date] = {}
 
+        # Rastrear última data de fim por onda (wave barrier)
+        wave_last_end_date: dict[int, date] = {}
+
         # Mapear histórias por ID para consulta rápida
         story_map: dict[str, Story] = {s.id: s for s in stories}
 
@@ -77,6 +87,18 @@ class ScheduleCalculator:
             # 2. Dependências (histórias das quais esta depende)
 
             earliest_start = start_date
+
+            # Verificar barreira de onda (wave barrier)
+            # Histórias de onda N só podem iniciar após todas as histórias
+            # de ondas anteriores (1 a N-1) terminarem. Wave 0 não bloqueia.
+            current_wave = story.wave
+            if current_wave > 0:
+                # Buscar ondas anteriores (excluindo wave 0)
+                prev_waves = [w for w in wave_last_end_date.keys() if 0 < w < current_wave]
+                if prev_waves:
+                    prev_wave = max(prev_waves)
+                    wave_barrier = self._next_workday(wave_last_end_date[prev_wave])
+                    earliest_start = max(earliest_start, wave_barrier)
 
             # Verificar última história do desenvolvedor
             if story.developer_id and story.developer_id in dev_last_end_date:
@@ -108,6 +130,10 @@ class ScheduleCalculator:
             # Atualizar última data de fim do desenvolvedor
             if story.developer_id:
                 dev_last_end_date[story.developer_id] = story.end_date
+
+            # Atualizar última data de fim da onda
+            if current_wave not in wave_last_end_date or story.end_date > wave_last_end_date[current_wave]:
+                wave_last_end_date[current_wave] = story.end_date
 
         return stories
 
@@ -202,3 +228,71 @@ class ScheduleCalculator:
             next_day = next_day + timedelta(days=1)
 
         return next_day
+
+    def is_workday(self, date_to_check: date) -> bool:
+        """
+        Verifica se a data é um dia útil (método público).
+
+        Dia útil = segunda a sexta E não é feriado nacional brasileiro.
+
+        Args:
+            date_to_check: Data a verificar
+
+        Returns:
+            True se é dia útil
+        """
+        return self._is_workday(date_to_check)
+
+    def count_workdays(self, start: date, end: date) -> int:
+        """
+        Conta o número de dias úteis entre duas datas (inclusivo).
+
+        Considera apenas segunda a sexta, excluindo feriados nacionais brasileiros.
+
+        Args:
+            start: Data inicial (inclusiva)
+            end: Data final (inclusiva)
+
+        Returns:
+            Número de dias úteis no intervalo
+        """
+        if start > end:
+            return 0
+
+        current = start
+        count = 0
+
+        while current <= end:
+            if self._is_workday(current):
+                count += 1
+            current = current + timedelta(days=1)
+
+        return count
+
+    def count_workdays_between(self, start: date, end: date) -> int:
+        """
+        Conta o número de dias úteis ENTRE duas datas (exclusivo).
+
+        Útil para calcular gaps de ociosidade entre histórias.
+        Não inclui nem start nem end no cálculo.
+
+        Args:
+            start: Data inicial (exclusiva - dia seguinte conta)
+            end: Data final (exclusiva - dia anterior conta)
+
+        Returns:
+            Número de dias úteis entre as datas
+        """
+        if end <= start:
+            return 0
+
+        # Contar de start+1 até end-1
+        current = start + timedelta(days=1)
+        count = 0
+
+        while current < end:
+            if self._is_workday(current):
+                count += 1
+            current = current + timedelta(days=1)
+
+        return count
