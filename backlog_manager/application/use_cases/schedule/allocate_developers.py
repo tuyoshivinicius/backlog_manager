@@ -264,6 +264,17 @@ class AllocateDevelopersUseCase:
         if violations_fixed > 0:
             logger.info(f"Validação final: {violations_fixed} histórias ajustadas para respeitar dependências")
 
+        # 5.5 RESOLVER CONFLITOS DE ALOCAÇÃO (proteção adicional)
+        # Detecta e resolve histórias do mesmo desenvolvedor com períodos sobrepostos.
+        # Esta é uma camada defensiva que garante consistência mesmo se algum bug
+        # anterior criar conflitos.
+        logger.info("Validação final: resolvendo conflitos de alocação")
+        conflicts_resolved = self._resolve_allocation_conflicts(all_stories, developers)
+        if conflicts_resolved > 0:
+            logger.warning(
+                f"Validação final: {conflicts_resolved} conflitos de alocação resolvidos"
+            )
+
         # 6. ATUALIZAR schedule_order baseado na ordem final (antes de salvar)
         self._update_schedule_order_in_memory(all_stories)
 
@@ -814,6 +825,11 @@ class AllocateDevelopersUseCase:
         Processa histórias em ordem topológica para garantir que dependências sejam
         ajustadas antes de seus dependentes.
 
+        IMPORTANTE: Histórias já alocadas são PULADAS para evitar criar conflitos
+        de período com outras histórias do mesmo desenvolvedor. Ajustar datas de
+        histórias alocadas pode mover a história para um período onde o desenvolvedor
+        já está ocupado.
+
         Args:
             all_stories: Lista de todas as histórias
             config: Configuração do sistema
@@ -827,6 +843,15 @@ class AllocateDevelopersUseCase:
         violations_fixed = 0
 
         for story in sorted_stories:
+            # IMPORTANTE: Pular histórias já alocadas para evitar criar conflitos
+            # de período. Se uma história alocada tiver sua data ajustada, ela pode
+            # passar a sobrepor com outra história do mesmo desenvolvedor.
+            if story.developer_id is not None:
+                logger.debug(
+                    f"História {story.id}: pulando _final_dependency_check (já alocada para dev {story.developer_id})"
+                )
+                continue
+
             if not story.start_date or not story.dependencies:
                 continue
 
@@ -856,3 +881,87 @@ class AllocateDevelopersUseCase:
                 )
 
         return violations_fixed
+
+    def _resolve_allocation_conflicts(
+        self,
+        all_stories: List[Story],
+        developers: List[Developer],
+    ) -> int:
+        """
+        Detecta e resolve conflitos de alocação (períodos sobrepostos).
+
+        Executa após _final_dependency_check como camada adicional de proteção.
+        Para cada desenvolvedor, verifica se há histórias com períodos sobrepostos
+        e ajusta as datas da história posterior para começar após a anterior.
+
+        Este método é uma proteção defensiva para garantir que não existam
+        conflitos de período, independentemente de como foram criados.
+
+        Args:
+            all_stories: Lista de todas as histórias
+            developers: Lista de todos os desenvolvedores
+
+        Returns:
+            Número de conflitos resolvidos
+        """
+        conflicts_resolved = 0
+        max_passes = 100  # Limite de segurança para evitar loop infinito
+
+        for pass_num in range(max_passes):
+            conflict_found_in_pass = False
+
+            for dev in developers:
+                # Buscar histórias alocadas para este desenvolvedor
+                dev_stories = [
+                    s for s in all_stories
+                    if s.developer_id == dev.id
+                    and s.start_date is not None
+                    and s.end_date is not None
+                ]
+
+                if len(dev_stories) < 2:
+                    continue
+
+                # Ordenar por data de início
+                dev_stories.sort(key=lambda s: (s.start_date, s.id))  # type: ignore
+
+                # Verificar sobreposições entre histórias consecutivas
+                for i in range(len(dev_stories) - 1):
+                    current = dev_stories[i]
+                    next_story = dev_stories[i + 1]
+
+                    if self._periods_overlap(
+                        current.start_date,  # type: ignore
+                        current.end_date,  # type: ignore
+                        next_story.start_date,  # type: ignore
+                        next_story.end_date,  # type: ignore
+                    ):
+                        # CONFLITO DETECTADO!
+                        # Ajustar next_story para começar após current terminar
+                        old_start = next_story.start_date
+                        new_start = self._schedule_calculator.add_workdays(
+                            current.end_date, 1  # type: ignore
+                        )
+
+                        if self._update_story_dates(next_story, new_start):
+                            self._modified_stories.add(next_story.id)
+                            conflicts_resolved += 1
+                            conflict_found_in_pass = True
+
+                            logger.warning(
+                                f"Conflito de alocação resolvido: {next_story.id} ajustada de "
+                                f"{old_start} para {new_start} (sobrepunha com {current.id} "
+                                f"do dev {dev.name})"
+                            )
+
+            # Se não encontrou conflitos nesta passada, terminamos
+            if not conflict_found_in_pass:
+                break
+
+        if conflicts_resolved > 0:
+            logger.info(
+                f"_resolve_allocation_conflicts: {conflicts_resolved} conflitos resolvidos "
+                f"em {pass_num + 1} passadas"
+            )
+
+        return conflicts_resolved

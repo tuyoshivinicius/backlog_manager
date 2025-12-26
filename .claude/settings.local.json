@@ -57,7 +57,8 @@
       "Bash(backlog_manager/presentation/views/configuration_dialog.py )",
       "Bash(backlog_manager/presentation/controllers/main_controller.py)",
       "Bash(git commit:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(chcp 6500)"
     ]
   }
 }
