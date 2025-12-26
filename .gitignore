@@ -22,7 +22,7 @@ htmlcov/
 *.swo
 
 # Project specific
-backlog.db
+#backlog.db
 *.xlsx
 dist/
 build/
