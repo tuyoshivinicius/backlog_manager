@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Optional
 
+from backlog_manager.domain.value_objects.allocation_criteria import AllocationCriteria
+
 
 @dataclass
 class Configuration:
@@ -13,11 +15,13 @@ class Configuration:
         story_points_per_sprint: Velocidade do time em SP por sprint
         workdays_per_sprint: Dias úteis em uma sprint
         roadmap_start_date: Data de início do roadmap (opcional)
+        allocation_criteria: Critério de alocação de desenvolvedores
     """
 
     story_points_per_sprint: int = 21
     workdays_per_sprint: int = 15
     roadmap_start_date: Optional[date] = None
+    allocation_criteria: AllocationCriteria = AllocationCriteria.LOAD_BALANCING
 
     def __post_init__(self) -> None:
         """Valida configuração."""

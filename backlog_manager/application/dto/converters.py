@@ -7,6 +7,7 @@ from backlog_manager.domain.entities.configuration import Configuration
 from backlog_manager.domain.entities.developer import Developer
 from backlog_manager.domain.entities.feature import Feature
 from backlog_manager.domain.entities.story import Story
+from backlog_manager.domain.value_objects.allocation_criteria import AllocationCriteria
 from backlog_manager.domain.value_objects.story_point import StoryPoint
 from backlog_manager.domain.value_objects.story_status import StoryStatus
 
@@ -118,6 +119,7 @@ def configuration_to_dto(config: Configuration) -> ConfigurationDTO:
         workdays_per_sprint=config.workdays_per_sprint,
         velocity_per_day=config.velocity_per_day,
         roadmap_start_date=config.roadmap_start_date,
+        allocation_criteria=config.allocation_criteria.value,
     )
 
 
@@ -131,8 +133,17 @@ def dto_to_configuration(dto: ConfigurationDTO) -> Configuration:
     Returns:
         Entidade Configuration correspondente
     """
+    # Converter allocation_criteria de string para enum
+    try:
+        allocation_criteria = AllocationCriteria.from_string(dto.allocation_criteria)
+    except ValueError:
+        allocation_criteria = AllocationCriteria.LOAD_BALANCING
+
     return Configuration(
-        story_points_per_sprint=dto.story_points_per_sprint, workdays_per_sprint=dto.workdays_per_sprint
+        story_points_per_sprint=dto.story_points_per_sprint,
+        workdays_per_sprint=dto.workdays_per_sprint,
+        roadmap_start_date=dto.roadmap_start_date,
+        allocation_criteria=allocation_criteria,
     )
 
 

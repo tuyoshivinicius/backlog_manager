@@ -8,6 +8,7 @@ from typing import Optional
 
 from PySide6.QtCore import QDate, Signal
 from PySide6.QtWidgets import (
+    QComboBox,
     QDateEdit,
     QDialog,
     QFormLayout,
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from backlog_manager.application.dto.configuration_dto import ConfigurationDTO
+from backlog_manager.domain.value_objects.allocation_criteria import AllocationCriteria
 
 
 class ConfigurationDialog(QDialog):
@@ -101,6 +103,20 @@ class ConfigurationDialog(QDialog):
         self._velocity_label.setStyleSheet("font-weight: bold;")
         form_layout.addRow("Velocidade por Dia:", self._velocity_label)
 
+        # Critério de Alocação de Desenvolvedores
+        self._allocation_criteria_combo = QComboBox()
+        for criteria in AllocationCriteria:
+            display_name = AllocationCriteria.get_display_name(criteria)
+            self._allocation_criteria_combo.addItem(display_name, criteria.value)
+
+        # Tooltip com descrição de cada critério
+        tooltip_text = "\n\n".join(
+            f"{AllocationCriteria.get_display_name(c)}: {AllocationCriteria.get_description(c)}"
+            for c in AllocationCriteria
+        )
+        self._allocation_criteria_combo.setToolTip(tooltip_text)
+        form_layout.addRow("Critério de Alocação:", self._allocation_criteria_combo)
+
         main_layout.addLayout(form_layout)
 
         # Explicação
@@ -179,6 +195,13 @@ class ConfigurationDialog(QDialog):
             qdate = QDate(start_date.year, start_date.month, start_date.day)
             self._roadmap_start_date_edit.setDate(qdate)
 
+        # Carregar critério de alocação
+        if hasattr(configuration, "allocation_criteria") and configuration.allocation_criteria:
+            # Encontrar o índice do item com o valor correspondente
+            index = self._allocation_criteria_combo.findData(configuration.allocation_criteria)
+            if index >= 0:
+                self._allocation_criteria_combo.setCurrentIndex(index)
+
     def _update_velocity_label(self) -> None:
         """Atualiza label de velocidade calculada."""
         sp = self._sp_per_sprint_spin.value()
@@ -243,11 +266,15 @@ class ConfigurationDialog(QDialog):
             QMessageBox.warning(self, "Data Inválida", "A data de início deve ser um dia útil (segunda a sexta).")
             return
 
+        # Obter critério de alocação selecionado
+        allocation_criteria = self._allocation_criteria_combo.currentData()
+
         # Coletar dados
         config_data = {
             "story_points_per_sprint": self._sp_per_sprint_spin.value(),
             "workdays_per_sprint": self._workdays_per_sprint_spin.value(),
             "roadmap_start_date": python_date,
+            "allocation_criteria": allocation_criteria,
         }
 
         # Emitir sinal

@@ -16,3 +16,4 @@ class ConfigurationDTO:
     workdays_per_sprint: int
     velocity_per_day: float
     roadmap_start_date: Optional[date] = None
+    allocation_criteria: str = "LOAD_BALANCING"  # Valor do enum como string

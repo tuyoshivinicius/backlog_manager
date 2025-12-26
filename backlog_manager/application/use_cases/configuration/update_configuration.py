@@ -7,6 +7,7 @@ from backlog_manager.application.dto.configuration_dto import ConfigurationDTO
 from backlog_manager.application.dto.converters import configuration_to_dto
 from backlog_manager.application.interfaces.repositories.configuration_repository import ConfigurationRepository
 from backlog_manager.domain.entities.configuration import Configuration
+from backlog_manager.domain.value_objects.allocation_criteria import AllocationCriteria
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ class UpdateConfigurationUseCase:
         story_points_per_sprint: int,
         workdays_per_sprint: int,
         roadmap_start_date: Optional[date] = None,
+        allocation_criteria: Optional[str] = None,
     ) -> Tuple[ConfigurationDTO, bool]:
         """
         Atualiza configuração do sistema.
@@ -44,6 +46,7 @@ class UpdateConfigurationUseCase:
             story_points_per_sprint: Nova velocidade (obrigatório)
             workdays_per_sprint: Novos dias úteis (obrigatório)
             roadmap_start_date: Nova data de início do roadmap (opcional, None para limpar)
+            allocation_criteria: Critério de alocação (opcional, None mantém o atual)
 
         Returns:
             Tupla (ConfigurationDTO atualizado, requer_recalculo: bool)
@@ -53,7 +56,8 @@ class UpdateConfigurationUseCase:
         """
         logger.info(
             f"Atualizando configuração: story_points_per_sprint={story_points_per_sprint}, "
-            f"workdays_per_sprint={workdays_per_sprint}, roadmap_start_date={roadmap_start_date}"
+            f"workdays_per_sprint={workdays_per_sprint}, roadmap_start_date={roadmap_start_date}, "
+            f"allocation_criteria={allocation_criteria}"
         )
 
         # 1. Buscar configuração atual
@@ -61,10 +65,24 @@ class UpdateConfigurationUseCase:
         logger.debug(
             f"Configuração atual: story_points_per_sprint={current.story_points_per_sprint}, "
             f"workdays_per_sprint={current.workdays_per_sprint}, "
-            f"roadmap_start_date={current.roadmap_start_date}"
+            f"roadmap_start_date={current.roadmap_start_date}, "
+            f"allocation_criteria={current.allocation_criteria.value}"
         )
 
-        # 2. Verificar se houve mudança
+        # Converter allocation_criteria de string para enum (se fornecido)
+        if allocation_criteria is not None:
+            try:
+                new_allocation_criteria = AllocationCriteria.from_string(allocation_criteria)
+            except ValueError:
+                logger.warning(
+                    f"Critério de alocação inválido: {allocation_criteria}. "
+                    "Mantendo o valor atual."
+                )
+                new_allocation_criteria = current.allocation_criteria
+        else:
+            new_allocation_criteria = current.allocation_criteria
+
+        # 2. Verificar se houve mudança (que afeta cronograma)
         requires_recalculation = (
             story_points_per_sprint != current.story_points_per_sprint
             or workdays_per_sprint != current.workdays_per_sprint
@@ -81,6 +99,7 @@ class UpdateConfigurationUseCase:
             story_points_per_sprint=story_points_per_sprint,
             workdays_per_sprint=workdays_per_sprint,
             roadmap_start_date=roadmap_start_date,
+            allocation_criteria=new_allocation_criteria,
         )
         logger.debug("Nova configuração validada")
 
@@ -88,6 +107,7 @@ class UpdateConfigurationUseCase:
         self._configuration_repository.save(new_config)
         logger.info(
             f"Configuração atualizada: velocity={new_config.velocity_per_day:.2f} pts/dia, "
+            f"allocation_criteria={new_config.allocation_criteria.value}, "
             f"requer_recalculo={requires_recalculation}"
         )
 

@@ -760,19 +760,22 @@ class MainController:
         Callback quando configuração é salva.
 
         Args:
-            data: Dicionário com story_points_per_sprint, workdays_per_sprint, roadmap_start_date
+            data: Dicionário com story_points_per_sprint, workdays_per_sprint,
+                  roadmap_start_date, allocation_criteria
         """
         try:
             # Extrair dados
             sp_per_sprint = data["story_points_per_sprint"]
             workdays_per_sprint = data["workdays_per_sprint"]
             roadmap_start_date = data.get("roadmap_start_date")  # Opcional
+            allocation_criteria = data.get("allocation_criteria")  # Opcional
 
             # Atualizar configuração
             updated_config, requires_recalc = self._update_config_use_case.execute(
                 story_points_per_sprint=sp_per_sprint,
                 workdays_per_sprint=workdays_per_sprint,
                 roadmap_start_date=roadmap_start_date,
+                allocation_criteria=allocation_criteria,
             )
 
             # Se houve mudança que requer recálculo, executar automaticamente

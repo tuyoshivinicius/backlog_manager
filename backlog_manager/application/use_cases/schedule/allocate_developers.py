@@ -1,7 +1,9 @@
 """Caso de uso para alocar desenvolvedores."""
 import logging
-from datetime import date
-from typing import List, Set, Tuple
+import time
+from dataclasses import dataclass, field
+from datetime import date, timedelta
+from typing import Dict, List, Optional, Set, Tuple
 
 from backlog_manager.application.interfaces.repositories.configuration_repository import (
     ConfigurationRepository,
@@ -15,10 +17,48 @@ from backlog_manager.domain.entities.developer import Developer
 from backlog_manager.domain.entities.story import Story
 from backlog_manager.domain.services.backlog_sorter import BacklogSorter
 from backlog_manager.domain.services.developer_load_balancer import DeveloperLoadBalancer
-from backlog_manager.domain.services.idleness_detector import IdlenessDetector, IdlenessWarning
+from backlog_manager.domain.services.idleness_detector import (
+    AllocationWarning,
+    DeadlockWarning,
+    IdlenessDetector,
+    IdlenessWarning,
+)
 from backlog_manager.domain.services.schedule_calculator import ScheduleCalculator
 
 logger = logging.getLogger(__name__)
+
+# Constante configurável para limite de iterações
+DEFAULT_MAX_ITERATIONS = 1000
+
+
+@dataclass
+class AllocationMetrics:
+    """Métricas de performance da alocação de desenvolvedores."""
+
+    total_time_seconds: float = 0.0
+    stories_processed: int = 0
+    stories_allocated: int = 0
+    waves_processed: int = 0
+    total_iterations: int = 0
+    iterations_per_wave: Dict[int, int] = field(default_factory=dict)
+    allocations_by_dependency_owner: int = 0
+    allocations_by_load_balancing: int = 0
+    deadlocks_detected: int = 0
+    date_adjustments: int = 0
+
+    def __str__(self) -> str:
+        """Retorna representação legível das métricas."""
+        return (
+            f"AllocationMetrics("
+            f"time={self.total_time_seconds:.2f}s, "
+            f"stories={self.stories_allocated}/{self.stories_processed}, "
+            f"waves={self.waves_processed}, "
+            f"iterations={self.total_iterations}, "
+            f"by_dep_owner={self.allocations_by_dependency_owner}, "
+            f"by_load_bal={self.allocations_by_load_balancing}, "
+            f"deadlocks={self.deadlocks_detected}, "
+            f"adjustments={self.date_adjustments})"
+        )
 
 
 class NoDevelopersAvailableException(Exception):
@@ -78,6 +118,7 @@ class AllocateDevelopersUseCase:
         idleness_detector: IdlenessDetector,
         schedule_calculator: ScheduleCalculator,
         backlog_sorter: BacklogSorter,
+        max_iterations: int = DEFAULT_MAX_ITERATIONS,
     ):
         """
         Inicializa caso de uso.
@@ -90,6 +131,7 @@ class AllocateDevelopersUseCase:
             idleness_detector: Serviço de detecção de ociosidade
             schedule_calculator: Serviço de cálculo de cronograma
             backlog_sorter: Serviço de ordenação topológica
+            max_iterations: Limite máximo de iterações por onda (padrão: 1000)
         """
         self._story_repository = story_repository
         self._developer_repository = developer_repository
@@ -98,20 +140,24 @@ class AllocateDevelopersUseCase:
         self._idleness_detector = idleness_detector
         self._schedule_calculator = schedule_calculator
         self._backlog_sorter = backlog_sorter
+        self._max_iterations = max_iterations
 
-    def execute(self) -> Tuple[int, List[IdlenessWarning]]:
+    def execute(self) -> Tuple[int, List[AllocationWarning], AllocationMetrics]:
         """
         Aloca desenvolvedores processando onda por onda.
 
         **ALGORITMO (Processamento por Onda):**
 
-        0. Atualiza schedule_order baseado na ordem atual da tabela (priority)
         1. Valida desenvolvedores (lança exceção se nenhum)
-        2. Agrupa histórias por onda
-        3. Para cada onda (em ordem crescente):
+        2. Carrega todas as histórias UMA VEZ (cache em memória)
+        3. Agrupa histórias por onda
+        4. Para cada onda (em ordem crescente):
            - Aloca histórias da onda usando _allocate_wave()
            - Se deadlock na onda: emite warning e prossegue para próxima
-        4. Detecta ociosidade após todas as alocações
+        5. Validação final de dependências
+        6. Atualiza schedule_order baseado na ordem final
+        7. Salva TODAS as histórias modificadas em batch (única transação)
+        8. Detecta ociosidade
 
         **Vantagens do processamento por onda:**
         - Garante que histórias de ondas anteriores são priorizadas
@@ -119,16 +165,22 @@ class AllocateDevelopersUseCase:
         - Permite rastreamento de progresso por onda
         - Alinhado com estratégia de entrega incremental
 
+        **Otimizações de I/O (Fase 2):**
+        - Apenas 1 chamada a find_all() no início
+        - Todas as operações usam cache em memória
+        - Apenas 1 chamada a save_batch() no final
+
         Returns:
-            Tupla (total_alocado, lista_de_warnings)
+            Tupla (total_alocado, lista_de_warnings, métricas)
 
         Raises:
             NoDevelopersAvailableException: Se não há desenvolvedores cadastrados
         """
-        logger.info("Iniciando alocação de desenvolvedores (processamento por onda)")
+        # INICIAR COLETA DE MÉTRICAS
+        start_time = time.perf_counter()
+        self._metrics = AllocationMetrics()
 
-        # 0. SINCRONIZAR schedule_order com ordem ATUAL da tabela
-        self._update_schedule_order_from_table()
+        logger.info("Iniciando alocação de desenvolvedores (processamento por onda)")
 
         # 1. VALIDAÇÕES
         developers = self._developer_repository.find_all()
@@ -139,26 +191,41 @@ class AllocateDevelopersUseCase:
 
         config = self._configuration_repository.get()
 
-        # 2. PREPARAR: buscar todas histórias e agrupar por onda
+        # Armazenar critério de alocação para uso durante o algoritmo
+        self._allocation_criteria = config.allocation_criteria
+        logger.info(f"Critério de alocação configurado: {self._allocation_criteria.value}")
+
+        # 2. PREPARAR: buscar todas histórias UMA ÚNICA VEZ (cache em memória)
         all_stories = self._story_repository.find_all()
 
         # Carregar features para acessar waves
         for story in all_stories:
             self._story_repository.load_feature(story)
 
+        # Criar mapa para busca O(1) de histórias por ID
+        self._story_map: Dict[str, Story] = {story.id: story for story in all_stories}
+
+        # Set para rastrear histórias modificadas (para save_batch no final)
+        self._modified_stories: Set[str] = set()
+
         # Identificar ondas únicas e ordenar
         waves = sorted(set(s.wave for s in all_stories if s.feature is not None))
 
         if not waves:
             logger.warning("Nenhuma história com feature definida encontrada")
-            return 0, []
+            self._metrics.total_time_seconds = time.perf_counter() - start_time
+            return 0, [], self._metrics
+
+        # Métricas: total de histórias e ondas
+        self._metrics.stories_processed = len(all_stories)
+        self._metrics.waves_processed = len(waves)
 
         logger.info(f"Encontradas {len(waves)} ondas para processar: {waves}")
 
         # 3. CONTEXTO GLOBAL de alocação (compartilhado entre ondas)
         adjusted_stories_global: Set[str] = set()  # Histórias já ajustadas (qualquer onda)
         total_allocated = 0
-        all_warnings: List[IdlenessWarning] = []
+        all_warnings: List[AllocationWarning] = []
 
         # 4. PROCESSAR onda por onda
         for wave in waves:
@@ -187,28 +254,38 @@ class AllocateDevelopersUseCase:
 
             logger.info(f"Onda {wave} concluída: {allocated} histórias alocadas")
 
-        # 5. VALIDAÇÃO FINAL: Re-verificar e ajustar dependências
+        # 5. VALIDAÇÃO FINAL: Re-verificar e ajustar dependências (usa cache em memória)
         logger.info("Validação final: verificando dependências")
-        all_stories = self._story_repository.find_all()
-        for story in all_stories:
-            self._story_repository.load_feature(story)
-
         violations_fixed = self._final_dependency_check(all_stories, config)
         if violations_fixed > 0:
             logger.info(f"Validação final: {violations_fixed} histórias ajustadas para respeitar dependências")
 
-        # 6. DETECTAR OCIOSIDADE após todas as alocações
+        # 6. ATUALIZAR schedule_order baseado na ordem final (antes de salvar)
+        self._update_schedule_order_in_memory(all_stories)
+
+        # 7. SALVAR todas as histórias modificadas em batch (única transação)
+        stories_to_save = [s for s in all_stories if s.id in self._modified_stories]
+        if stories_to_save:
+            logger.info(f"Salvando {len(stories_to_save)} histórias modificadas em batch")
+            self._story_repository.save_batch(stories_to_save)
+
+        # 8. DETECTAR OCIOSIDADE após todas as alocações (usa cache em memória)
         logger.info("Detectando períodos de ociosidade")
-        all_stories = self._story_repository.find_all()
         idleness_warnings = self._idleness_detector.detect_idleness(all_stories)
         all_warnings.extend(idleness_warnings)
 
+        # FINALIZAR MÉTRICAS
+        self._metrics.total_time_seconds = time.perf_counter() - start_time
+        self._metrics.stories_allocated = total_allocated
+
+        # Logar métricas de performance
         logger.info(
             f"Alocação concluída: {total_allocated} histórias alocadas, "
             f"{len(all_warnings)} warnings detectados"
         )
+        logger.info(f"Métricas de performance: {self._metrics}")
 
-        return total_allocated, all_warnings
+        return total_allocated, all_warnings, self._metrics
 
     def _allocate_wave(
         self,
@@ -218,7 +295,7 @@ class AllocateDevelopersUseCase:
         all_stories: List[Story],
         adjusted_stories_global: Set[str],
         config: Configuration,
-    ) -> Tuple[int, List[IdlenessWarning]]:
+    ) -> Tuple[int, List[AllocationWarning]]:
         """
         Aloca desenvolvedores para histórias de uma onda específica.
 
@@ -239,14 +316,15 @@ class AllocateDevelopersUseCase:
         logger.debug(f"_allocate_wave: Iniciando alocação para onda {wave}")
 
         allocated_count = 0
-        warnings: List[IdlenessWarning] = []
-        max_iterations = 1000
+        warnings: List[AllocationWarning] = []
+        wave_iterations = 0
 
         # Contexto local da onda (flags de ajuste)
         adjusted_stories_last_iteration: Set[str] = set()
 
         # Loop principal de alocação (semelhante ao algoritmo original)
-        for iteration in range(max_iterations):
+        for iteration in range(self._max_iterations):
+            wave_iterations += 1
             adjusted_stories_this_iteration: Set[str] = set()
 
             # Listar histórias não alocadas DESTA ONDA
@@ -272,7 +350,7 @@ class AllocateDevelopersUseCase:
                 deps_adjusted = self._ensure_dependencies_finished(story, all_stories, config)
                 if deps_adjusted:
                     logger.debug(f"História {story.id}: data ajustada para aguardar dependências")
-                    self._story_repository.save(story)
+                    self._modified_stories.add(story.id)  # Marcar como modificada
 
                 # Verificar disponibilidade de desenvolvedores
                 available_devs = self._get_available_developers(
@@ -284,16 +362,37 @@ class AllocateDevelopersUseCase:
 
                 if available_devs:
                     # HÁ DEV DISPONÍVEL - ALOCAR
-                    sorted_devs = self._load_balancer.sort_by_load_random_tiebreak(
-                        available_devs, all_stories
+                    # Verificar se há "dono" de dependência (para métricas)
+                    dependency_owner = self._load_balancer.get_dependency_owner(
+                        story, self._story_map, available_devs
                     )
 
-                    selected_dev = sorted_devs[0]
+                    # Usa get_developer_for_story que considera o critério configurado:
+                    # - LOAD_BALANCING: Usa apenas balanceamento de carga
+                    # - DEPENDENCY_OWNER: Prioriza "dono" de dependência, fallback para balanceamento
+                    selected_dev = self._load_balancer.get_developer_for_story(
+                        story,
+                        self._story_map,
+                        available_devs,
+                        all_stories,
+                        allocation_criteria=self._allocation_criteria,
+                    )
+
+                    if selected_dev is None:
+                        # Fallback para o primeiro disponível (não deveria acontecer)
+                        selected_dev = available_devs[0]
+
                     story.allocate_developer(selected_dev.id)
-                    self._story_repository.save(story)
+                    self._modified_stories.add(story.id)  # Marcar como modificada
 
                     allocated_count += 1
                     allocation_made = True
+
+                    # Métricas: rastrear tipo de alocação
+                    if dependency_owner and selected_dev.id == dependency_owner.id:
+                        self._metrics.allocations_by_dependency_owner += 1
+                    else:
+                        self._metrics.allocations_by_load_balancing += 1
 
                     logger.debug(
                         f"História {story.id} (wave={wave}) alocada para desenvolvedor {selected_dev.name}"
@@ -318,55 +417,101 @@ class AllocateDevelopersUseCase:
                             self._adjust_story_dates(story, 1, config)
                             adjusted_stories_global.add(story.id)
                             adjusted_stories_this_iteration.add(story.id)
-                            self._story_repository.save(story)
+                            self._modified_stories.add(story.id)  # Marcar como modificada
+                            self._metrics.date_adjustments += 1  # Métrica
                             logger.debug(f"História {story.id} (wave={wave}): data ajustada +1 dia")
                     else:
                         # Nunca foi ajustada: ajustar pela primeira vez
                         self._adjust_story_dates(story, 1, config)
                         adjusted_stories_global.add(story.id)
                         adjusted_stories_this_iteration.add(story.id)
-                        self._story_repository.save(story)
+                        self._modified_stories.add(story.id)  # Marcar como modificada
+                        self._metrics.date_adjustments += 1  # Métrica
                         logger.debug(f"História {story.id} (wave={wave}): data ajustada +1 dia")
 
             # Atualizar flag "última iteração" para próxima rodada
             adjusted_stories_last_iteration = adjusted_stories_this_iteration.copy()
 
             # DETECÇÃO DE DEADLOCK (nenhum progresso nesta iteração)
-            if not allocation_made and len(adjusted_stories_this_iteration) == 0:
-                # Deadlock: nenhuma alocação e nenhum ajuste
-                logger.warning(
-                    f"Deadlock detectado na onda {wave}: nenhuma história pode ser alocada. "
-                    f"Prosseguindo para próxima onda."
-                )
-                # Criar warning de deadlock
-                deadlock_warning = IdlenessWarning(
-                    developer_name=f"Onda {wave}",
-                    idle_period_start=None,  # type: ignore
-                    idle_period_end=None,  # type: ignore
-                    idle_days=0,
-                    message=f"Deadlock na onda {wave}: {len(unallocated_stories)} histórias não puderam ser alocadas",
-                )
+            deadlock_warning = self._detect_deadlock(
+                wave, allocation_made, adjusted_stories_this_iteration, unallocated_stories
+            )
+            if deadlock_warning:
                 warnings.append(deadlock_warning)
+                self._metrics.deadlocks_detected += 1
                 break  # Sair do loop e prosseguir para próxima onda
+
+        # Atualizar métricas de iterações
+        self._metrics.iterations_per_wave[wave] = wave_iterations
+        self._metrics.total_iterations += wave_iterations
 
         return allocated_count, warnings
 
-    def _update_schedule_order_from_table(self) -> None:
+    def _detect_deadlock(
+        self,
+        wave: int,
+        allocation_made: bool,
+        adjusted_this_iteration: Set[str],
+        unallocated_stories: List[Story],
+    ) -> Optional[DeadlockWarning]:
         """
-        Atualiza schedule_order de todas as histórias baseado na ordem ATUAL da tabela.
+        Detecta situação de deadlock e retorna warning se detectado.
+
+        Um deadlock ocorre quando:
+        1. Nenhuma alocação foi feita nesta iteração E
+        2. Nenhuma história teve sua data ajustada
+
+        Isso significa que o algoritmo não pode fazer mais progresso:
+        - Todas as histórias não alocadas já foram ajustadas
+        - Nenhum desenvolvedor está disponível nos períodos atuais
+        - O algoritmo ficaria em loop infinito sem esta detecção
+
+        Args:
+            wave: Número da onda sendo processada
+            allocation_made: True se alguma alocação foi feita nesta iteração
+            adjusted_this_iteration: Set de IDs de histórias ajustadas nesta iteração
+            unallocated_stories: Lista de histórias não alocadas
+
+        Returns:
+            DeadlockWarning se deadlock detectado, None caso contrário
+        """
+        # Condição de deadlock: sem progresso (sem alocação E sem ajuste)
+        if allocation_made or len(adjusted_this_iteration) > 0:
+            return None
+
+        # Deadlock detectado
+        logger.warning(
+            f"Deadlock detectado na onda {wave}: nenhuma história pode ser alocada. "
+            f"Prosseguindo para próxima onda."
+        )
+
+        return DeadlockWarning(
+            wave=wave,
+            unallocated_story_ids=[s.id for s in unallocated_stories],
+            message=f"{len(unallocated_stories)} histórias não puderam ser alocadas",
+        )
+
+    def _update_schedule_order_in_memory(self, all_stories: List[Story]) -> None:
+        """
+        Atualiza schedule_order de todas as histórias baseado na ordem atual (priority).
 
         Este método sincroniza schedule_order com a ordem visual da tabela (ordenada por priority),
         permitindo que mudanças manuais de prioridade sejam refletidas na alocação.
 
-        Chamado automaticamente no início de execute() antes da alocação.
-        """
-        # 1. Buscar TODAS as histórias ordenadas by priority (ordem da tabela)
-        all_stories = self._story_repository.find_all()
+        Opera em memória - as histórias são marcadas como modificadas para
+        serem salvas em batch posteriormente.
 
-        # 2. Atualizar schedule_order = índice na ordem atual
-        for index, story in enumerate(all_stories):
-            story.schedule_order = index
-            self._story_repository.save(story)
+        Args:
+            all_stories: Lista de todas as histórias (será ordenada por priority)
+        """
+        # Ordenar por priority para definir schedule_order
+        sorted_stories = sorted(all_stories, key=lambda s: s.priority)
+
+        # Atualizar schedule_order = índice na ordem atual
+        for index, story in enumerate(sorted_stories):
+            if story.schedule_order != index:
+                story.schedule_order = index
+                self._modified_stories.add(story.id)
 
     def _get_unallocated_stories(self, all_stories: List[Story]) -> List[Story]:
         """
@@ -479,12 +624,57 @@ class AllocateDevelopersUseCase:
 
         return available
 
+    def _calculate_new_end_date(self, story: Story, new_start: date) -> Optional[date]:
+        """
+        Calcula a nova data de fim da história baseada na nova data de início.
+
+        Mantém a duração original da história. Se a história tem `duration`,
+        usa esse valor. Senão, calcula a duração original em dias úteis.
+
+        Args:
+            story: História para calcular nova data de fim
+            new_start: Nova data de início
+
+        Returns:
+            Nova data de fim, ou None se não for possível calcular
+        """
+        if story.duration:
+            # Duration - 1 porque add_workdays usa offset semantics
+            return self._schedule_calculator.add_workdays(new_start, story.duration - 1)
+        elif story.start_date and story.end_date:
+            # Calcular duração original em dias úteis
+            workdays = self._schedule_calculator.count_workdays(story.start_date, story.end_date)
+            return self._schedule_calculator.add_workdays(new_start, max(0, workdays - 1))
+        else:
+            return None
+
+    def _update_story_dates(self, story: Story, new_start: date) -> bool:
+        """
+        Atualiza as datas de início e fim da história in-place.
+
+        Calcula a nova data de fim mantendo a duração original.
+
+        Args:
+            story: História a atualizar
+            new_start: Nova data de início
+
+        Returns:
+            True se as datas foram atualizadas, False se não foi possível
+        """
+        new_end = self._calculate_new_end_date(story, new_start)
+        if new_end is None:
+            return False
+
+        story.start_date = new_start
+        story.end_date = new_end
+        return True
+
     def _adjust_story_dates(self, story: Story, days_to_add: int, config: Configuration) -> None:
         """
         Ajusta datas da história adicionando dias ÚTEIS.
 
         Usa o ScheduleCalculator para adicionar dias úteis corretamente
-        (considerando apenas segunda a sexta).
+        (considerando apenas segunda a sexta e feriados).
 
         Args:
             story: História a ajustar
@@ -494,51 +684,11 @@ class AllocateDevelopersUseCase:
         if story.start_date is None:
             return
 
-        # Usar método do ScheduleCalculator para adicionar dias úteis
+        # Calcular nova data de início
         new_start = self._schedule_calculator.add_workdays(story.start_date, days_to_add)
 
-        # Calcular nova data de fim mantendo duração
-        if story.duration:
-            # Duration - 1 porque add_workdays usa offset semantics
-            new_end = self._schedule_calculator.add_workdays(new_start, story.duration - 1)
-        else:
-            # Se não tem duração, manter intervalo
-            if story.end_date is None:
-                return
-
-            # Calcular número de dias úteis entre start e end
-            workdays = self._count_workdays(story.start_date, story.end_date)
-            # Workdays já é a contagem de dias no intervalo, usar -1 para offset
-            new_end = self._schedule_calculator.add_workdays(new_start, max(0, workdays - 1))
-
-        story.start_date = new_start
-        story.end_date = new_end
-
-    def _count_workdays(self, start: date, end: date) -> int:
-        """
-        Conta número de dias úteis entre duas datas.
-
-        Args:
-            start: Data inicial
-            end: Data final
-
-        Returns:
-            Número de dias úteis
-        """
-        from datetime import timedelta
-
-        if start > end:
-            return 0
-
-        current = start
-        count = 0
-
-        while current <= end:
-            if current.weekday() < 5:  # Segunda a Sexta
-                count += 1
-            current = current + timedelta(days=1)
-
-        return count
+        # Atualizar datas mantendo duração
+        self._update_story_dates(story, new_start)
 
     def _periods_overlap(self, start1: date, end1: date, start2: date, end2: date) -> bool:
         """
@@ -552,6 +702,44 @@ class AllocateDevelopersUseCase:
             True se períodos se sobrepõem
         """
         return start1 <= end2 and start2 <= end1
+
+    def _get_dependency_stories(self, story: Story) -> List[Story]:
+        """
+        Retorna lista de histórias que são dependências da história fornecida.
+
+        Usa o mapa `_story_map` para busca O(1) em vez de busca linear.
+
+        Args:
+            story: História para buscar dependências
+
+        Returns:
+            Lista de Stories que são pré-requisitos (pode estar vazia)
+        """
+        dependencies = []
+        for dep_id in story.dependencies:
+            dep_story = self._story_map.get(dep_id)
+            if dep_story:
+                dependencies.append(dep_story)
+            else:
+                logger.warning(f"Dependência {dep_id} não encontrada para história {story.id}")
+        return dependencies
+
+    def _get_latest_dependency_end_date(self, story: Story) -> Optional[date]:
+        """
+        Retorna a data de término mais tardia entre todas as dependências.
+
+        Args:
+            story: História para verificar dependências
+
+        Returns:
+            Data de término mais tardia ou None se não há dependências com datas
+        """
+        latest_end = None
+        for dep_story in self._get_dependency_stories(story):
+            if dep_story.end_date:
+                if latest_end is None or dep_story.end_date > latest_end:
+                    latest_end = dep_story.end_date
+        return latest_end
 
     def _ensure_dependencies_finished(
         self, story: Story, all_stories: List[Story], config: Configuration
@@ -573,16 +761,8 @@ class AllocateDevelopersUseCase:
         if not story.dependencies or not story.start_date:
             return False
 
-        # Buscar a data de término mais tarde entre todas as dependências
-        latest_dep_end = None
-
-        for dep_id in story.dependencies:
-            # Buscar dependência na lista
-            dep_story = next((s for s in all_stories if s.id == dep_id), None)
-
-            if dep_story and dep_story.end_date:
-                if latest_dep_end is None or dep_story.end_date > latest_dep_end:
-                    latest_dep_end = dep_story.end_date
+        # Buscar a data de término mais tarde entre todas as dependências (O(1) lookup)
+        latest_dep_end = self._get_latest_dependency_end_date(story)
 
         # Se não há dependências com datas, não precisa ajustar
         if latest_dep_end is None:
@@ -593,24 +773,12 @@ class AllocateDevelopersUseCase:
             return False
 
         # AJUSTAR: História deve iniciar no dia útil SEGUINTE ao fim da última dependência
-        # Adicionar 1 dia útil ao fim da dependência
+        old_start = story.start_date
         new_start = self._schedule_calculator.add_workdays(latest_dep_end, 1)
 
-        # Calcular nova data de fim mantendo a duração
-        if story.duration:
-            new_end = self._schedule_calculator.add_workdays(new_start, story.duration - 1)
-        else:
-            # Manter o intervalo original
-            if story.end_date:
-                workdays = self._count_workdays(story.start_date, story.end_date)
-                new_end = self._schedule_calculator.add_workdays(new_start, max(0, workdays - 1))
-            else:
-                return False
-
-        # Atualizar datas
-        old_start = story.start_date
-        story.start_date = new_start
-        story.end_date = new_end
+        # Atualizar datas usando método reutilizável
+        if not self._update_story_dates(story, new_start):
+            return False
 
         logger.info(
             f"História {story.id}: ajustada de {old_start} para {new_start} "
@@ -647,15 +815,8 @@ class AllocateDevelopersUseCase:
             if not story.start_date or not story.dependencies:
                 continue
 
-            # Verificar cada dependência
-            latest_dep_end = None
-
-            for dep_id in story.dependencies:
-                dep_story = next((s for s in all_stories if s.id == dep_id), None)
-
-                if dep_story and dep_story.end_date:
-                    if latest_dep_end is None or dep_story.end_date > latest_dep_end:
-                        latest_dep_end = dep_story.end_date
+            # Buscar data de término mais tarde entre dependências (O(1) lookup)
+            latest_dep_end = self._get_latest_dependency_end_date(story)
 
             # Se não há dependências com datas, pular
             if latest_dep_end is None:
@@ -667,20 +828,11 @@ class AllocateDevelopersUseCase:
                 old_start = story.start_date
                 new_start = self._schedule_calculator.add_workdays(latest_dep_end, 1)
 
-                # Calcular nova data de fim mantendo a duração
-                if story.duration:
-                    new_end = self._schedule_calculator.add_workdays(new_start, story.duration - 1)
-                else:
-                    if story.end_date:
-                        workdays = self._count_workdays(story.start_date, story.end_date)
-                        new_end = self._schedule_calculator.add_workdays(new_start, max(0, workdays - 1))
-                    else:
-                        continue
+                # Atualizar datas usando método reutilizável
+                if not self._update_story_dates(story, new_start):
+                    continue
 
-                story.start_date = new_start
-                story.end_date = new_end
-
-                self._story_repository.save(story)
+                self._modified_stories.add(story.id)  # Marcar como modificada
                 violations_fixed += 1
 
                 logger.info(

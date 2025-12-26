@@ -4,6 +4,7 @@ from typing import Dict, List, Optional
 
 from backlog_manager.domain.entities.developer import Developer
 from backlog_manager.domain.entities.story import Story
+from backlog_manager.domain.value_objects.allocation_criteria import AllocationCriteria
 
 
 class DeveloperLoadBalancer:
@@ -157,3 +158,95 @@ class DeveloperLoadBalancer:
             sorted_devs.extend(group)
 
         return sorted_devs
+
+    @staticmethod
+    def get_dependency_owner(
+        story: Story,
+        story_map: Dict[str, Story],
+        available_developers: List[Developer]
+    ) -> Optional[Developer]:
+        """
+        Retorna o desenvolvedor que é "dono" de uma dependência da história.
+
+        Prioriza histórias dependentes serem alocadas ao mesmo desenvolvedor
+        que trabalhou nas suas dependências (propriedade de contexto).
+
+        Regras:
+        1. Se a história não tem dependências, retorna None
+        2. Se nenhuma dependência tem desenvolvedor alocado, retorna None
+        3. Se o desenvolvedor da dependência não está na lista de disponíveis, retorna None
+        4. Se múltiplas dependências têm desenvolvedores diferentes, usa o da primeira
+
+        Args:
+            story: História que está sendo alocada
+            story_map: Mapa de ID -> Story para busca O(1)
+            available_developers: Lista de desenvolvedores disponíveis
+
+        Returns:
+            Desenvolvedor que deve ter prioridade, ou None se não houver
+        """
+        if not story.dependencies:
+            return None
+
+        # Criar set de IDs de devs disponíveis para busca O(1)
+        available_dev_ids = {dev.id for dev in available_developers}
+
+        # Procurar nas dependências um desenvolvedor alocado que esteja disponível
+        for dep_id in story.dependencies:
+            dep_story = story_map.get(dep_id)
+            if dep_story and dep_story.developer_id:
+                # Verificar se o dev da dependência está disponível
+                if dep_story.developer_id in available_dev_ids:
+                    # Encontrar o objeto Developer correspondente
+                    for dev in available_developers:
+                        if dev.id == dep_story.developer_id:
+                            return dev
+
+        return None
+
+    @staticmethod
+    def get_developer_for_story(
+        story: Story,
+        story_map: Dict[str, Story],
+        available_developers: List[Developer],
+        all_stories: List[Story],
+        allocation_criteria: AllocationCriteria = AllocationCriteria.LOAD_BALANCING,
+        random_seed: Optional[int] = None,
+    ) -> Optional[Developer]:
+        """
+        Seleciona o melhor desenvolvedor para uma história.
+
+        A estratégia de seleção depende do critério configurado:
+
+        - LOAD_BALANCING: Usa apenas balanceamento de carga (distribuição uniforme)
+        - DEPENDENCY_OWNER: Tenta alocar ao "dono" de uma dependência primeiro,
+          com fallback para balanceamento de carga
+
+        Args:
+            story: História a ser alocada
+            story_map: Mapa de ID -> Story para busca O(1)
+            available_developers: Lista de desenvolvedores disponíveis
+            all_stories: Todas as histórias (para calcular carga)
+            allocation_criteria: Critério de alocação configurado
+            random_seed: Seed opcional para testes determinísticos
+
+        Returns:
+            Desenvolvedor selecionado, ou None se não há disponíveis
+        """
+        if not available_developers:
+            return None
+
+        # Se critério for DEPENDENCY_OWNER, tentar priorizar proprietário de dependência
+        if allocation_criteria == AllocationCriteria.DEPENDENCY_OWNER:
+            dependency_owner = DeveloperLoadBalancer.get_dependency_owner(
+                story, story_map, available_developers
+            )
+            if dependency_owner:
+                return dependency_owner
+
+        # Usar balanceamento de carga (seja como critério principal ou fallback)
+        sorted_devs = DeveloperLoadBalancer.sort_by_load_random_tiebreak(
+            available_developers, all_stories, random_seed
+        )
+
+        return sorted_devs[0] if sorted_devs else None

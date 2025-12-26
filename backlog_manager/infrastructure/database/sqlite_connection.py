@@ -158,6 +158,26 @@ class SQLiteConnection:
             print(f"[INFO] Migration 004: {e}")
             pass
 
+        # Migration 005: Adicionar coluna allocation_criteria
+        try:
+            migration_005_path = migrations_path / "005_add_allocation_criteria.py"
+            if migration_005_path.exists():
+                import importlib.util
+
+                spec = importlib.util.spec_from_file_location("migration_005", migration_005_path)
+                if spec and spec.loader:
+                    migration_005 = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(migration_005)
+
+                    # Executar migration (idempotente)
+                    applied = migration_005.apply_if_needed(self._connection)
+                    if applied:
+                        print("[OK] Migration 005 aplicada: coluna allocation_criteria adicionada")
+        except Exception as e:
+            # Migration já aplicada ou erro - não falhar
+            print(f"[INFO] Migration 005: {e}")
+            pass
+
     def get_connection(self) -> sqlite3.Connection:
         """
         Retorna conexão ativa.

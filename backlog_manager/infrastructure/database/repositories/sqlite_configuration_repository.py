@@ -4,6 +4,7 @@ from datetime import date
 
 from backlog_manager.application.interfaces.repositories.configuration_repository import ConfigurationRepository
 from backlog_manager.domain.entities.configuration import Configuration
+from backlog_manager.domain.value_objects.allocation_criteria import AllocationCriteria
 from backlog_manager.infrastructure.database.sqlite_connection import SQLiteConnection
 
 logger = logging.getLogger(__name__)
@@ -42,21 +43,35 @@ class SQLiteConfigurationRepository(ConfigurationRepository):
                 SELECT
                     story_points_per_sprint,
                     workdays_per_sprint,
-                    roadmap_start_date
+                    roadmap_start_date,
+                    allocation_criteria
                 FROM configuration
                 WHERE id = 1
             """)
             row = cursor.fetchone()
+
+            # Carregar allocation_criteria (com fallback para LOAD_BALANCING)
+            allocation_criteria_str = row["allocation_criteria"] if row["allocation_criteria"] else "LOAD_BALANCING"
+            try:
+                allocation_criteria = AllocationCriteria.from_string(allocation_criteria_str)
+            except ValueError:
+                logger.warning(
+                    f"Critério de alocação inválido no banco: {allocation_criteria_str}. "
+                    "Usando LOAD_BALANCING como padrão."
+                )
+                allocation_criteria = AllocationCriteria.LOAD_BALANCING
 
             # Garantido existir (criado no schema)
             config = Configuration(
                 story_points_per_sprint=row["story_points_per_sprint"],
                 workdays_per_sprint=row["workdays_per_sprint"],
                 roadmap_start_date=date.fromisoformat(row["roadmap_start_date"]) if row["roadmap_start_date"] else None,
+                allocation_criteria=allocation_criteria,
             )
             logger.debug(
                 f"Configuração carregada: story_points_per_sprint={config.story_points_per_sprint}, "
-                f"workdays_per_sprint={config.workdays_per_sprint}"
+                f"workdays_per_sprint={config.workdays_per_sprint}, "
+                f"allocation_criteria={config.allocation_criteria.value}"
             )
             return config
 
@@ -73,7 +88,8 @@ class SQLiteConfigurationRepository(ConfigurationRepository):
         """
         logger.debug(
             f"Salvando configuração: story_points_per_sprint={config.story_points_per_sprint}, "
-            f"workdays_per_sprint={config.workdays_per_sprint}"
+            f"workdays_per_sprint={config.workdays_per_sprint}, "
+            f"allocation_criteria={config.allocation_criteria.value}"
         )
 
         try:
@@ -83,13 +99,15 @@ class SQLiteConfigurationRepository(ConfigurationRepository):
                 UPDATE configuration
                 SET story_points_per_sprint = ?,
                     workdays_per_sprint = ?,
-                    roadmap_start_date = ?
+                    roadmap_start_date = ?,
+                    allocation_criteria = ?
                 WHERE id = 1
             """,
                 (
                     config.story_points_per_sprint,
                     config.workdays_per_sprint,
                     config.roadmap_start_date.isoformat() if config.roadmap_start_date else None,
+                    config.allocation_criteria.value,
                 ),
             )
             logger.debug("Configuração salva com sucesso")
