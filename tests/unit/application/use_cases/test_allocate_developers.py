@@ -29,6 +29,7 @@ class TestAllocateDevelopersUseCase:
         load_balancer = Mock()
         idleness_detector = Mock()
         schedule_calculator = Mock()
+        backlog_sorter = Mock()
 
         feature_wave1 = Feature(id="F1", name="Feature Wave 1", wave=1)
         feature_wave2 = Feature(id="F2", name="Feature Wave 2", wave=2)
@@ -62,15 +63,19 @@ class TestAllocateDevelopersUseCase:
         story_repo.load_feature.side_effect = lambda s: None
         config_repo.get.return_value = Configuration()
         idleness_detector.detect_idleness.return_value = []
-        load_balancer.sort_by_load_random_tiebreak.return_value = [dev1]
+        idleness_detector.detect_between_waves_idleness.return_value = []
+        # Mock get_developer_for_story to return dev1 (novo método da Fase 3)
+        load_balancer.get_developer_for_story.return_value = dev1
+        # Mock backlog_sorter.sort to return sorted stories
+        backlog_sorter.sort.return_value = [story_w1, story_w2]
 
         use_case = AllocateDevelopersUseCase(
-            story_repo, dev_repo, config_repo, load_balancer, idleness_detector, schedule_calculator
+            story_repo, dev_repo, config_repo, load_balancer, idleness_detector, schedule_calculator, backlog_sorter
         )
 
         # Act
         with caplog.at_level(logging.INFO):
-            total, warnings = use_case.execute()
+            total, warnings, metrics = use_case.execute()
 
         # Assert
         # Deve processar onda 1 primeiro, depois onda 2
@@ -91,6 +96,7 @@ class TestAllocateDevelopersUseCase:
         load_balancer = Mock()
         idleness_detector = Mock()
         schedule_calculator = Mock()
+        backlog_sorter = Mock()
 
         feature = Feature(id="F1", name="Feature 1", wave=1)
         dev1 = Developer(id="1", name="Dev 1")
@@ -115,16 +121,21 @@ class TestAllocateDevelopersUseCase:
 
         dev_repo.find_all.return_value = [dev1]
         story_repo.find_all.return_value = all_stories
+        story_repo.load_feature.side_effect = lambda s: None
         config_repo.get.return_value = Configuration()
         idleness_detector.detect_idleness.return_value = []
-        load_balancer.sort_by_load_random_tiebreak.return_value = [dev1]
+        idleness_detector.detect_between_waves_idleness.return_value = []
+        # Mock get_developer_for_story to return dev1 (novo método da Fase 3)
+        load_balancer.get_developer_for_story.return_value = dev1
+        # Mock backlog_sorter.sort to return sorted stories
+        backlog_sorter.sort.return_value = [story1, story2]
 
         use_case = AllocateDevelopersUseCase(
-            story_repo, dev_repo, config_repo, load_balancer, idleness_detector, schedule_calculator
+            story_repo, dev_repo, config_repo, load_balancer, idleness_detector, schedule_calculator, backlog_sorter
         )
 
         # Act
-        total, warnings = use_case.execute()
+        total, warnings, metrics = use_case.execute()
 
         # Assert
         assert total == 2
@@ -141,6 +152,7 @@ class TestAllocateDevelopersUseCase:
         load_balancer = Mock()
         idleness_detector = Mock()
         schedule_calculator = Mock()
+        backlog_sorter = Mock()
 
         feature = Feature(id="F1", name="Feature 1", wave=1)
         dev1 = Developer(id="1", name="Dev 1")
@@ -158,13 +170,16 @@ class TestAllocateDevelopersUseCase:
         story_repo.load_feature.side_effect = lambda s: None
         config_repo.get.return_value = Configuration()
         idleness_detector.detect_idleness.return_value = []
+        idleness_detector.detect_between_waves_idleness.return_value = []
+        # Mock backlog_sorter.sort to return sorted stories
+        backlog_sorter.sort.return_value = [story]
 
         use_case = AllocateDevelopersUseCase(
-            story_repo, dev_repo, config_repo, load_balancer, idleness_detector, schedule_calculator
+            story_repo, dev_repo, config_repo, load_balancer, idleness_detector, schedule_calculator, backlog_sorter
         )
 
         # Act
-        total, warnings = use_case.execute()
+        total, warnings, metrics = use_case.execute()
 
         # Assert
         # Nenhuma história alocada (não tinha datas)
@@ -181,6 +196,7 @@ class TestAllocateDevelopersUseCase:
         load_balancer = Mock()
         idleness_detector = Mock()
         schedule_calculator = Mock()
+        backlog_sorter = Mock()
 
         feature = Feature(id="F1", name="Feature 1", wave=1)
 
@@ -194,7 +210,7 @@ class TestAllocateDevelopersUseCase:
         story_repo.find_all.return_value = [story]
 
         use_case = AllocateDevelopersUseCase(
-            story_repo, dev_repo, config_repo, load_balancer, idleness_detector, schedule_calculator
+            story_repo, dev_repo, config_repo, load_balancer, idleness_detector, schedule_calculator, backlog_sorter
         )
 
         # Act & Assert
@@ -210,6 +226,7 @@ class TestAllocateDevelopersUseCase:
         load_balancer = Mock()
         idleness_detector = Mock()
         schedule_calculator = Mock()
+        backlog_sorter = Mock()
 
         feature_wave1 = Feature(id="F1", name="Feature Wave 1", wave=1)
         feature_wave3 = Feature(id="F3", name="Feature Wave 3", wave=3)
@@ -236,17 +253,22 @@ class TestAllocateDevelopersUseCase:
 
         dev_repo.find_all.return_value = [dev1]
         story_repo.find_all.return_value = all_stories
+        story_repo.load_feature.side_effect = lambda s: None
         config_repo.get.return_value = Configuration()
         idleness_detector.detect_idleness.return_value = []
-        load_balancer.sort_by_load_random_tiebreak.return_value = [dev1]
+        idleness_detector.detect_between_waves_idleness.return_value = []
+        # Mock get_developer_for_story to return dev1 (novo método da Fase 3)
+        load_balancer.get_developer_for_story.return_value = dev1
+        # Mock backlog_sorter.sort to return sorted stories
+        backlog_sorter.sort.return_value = [story_w1, story_w3]
 
         use_case = AllocateDevelopersUseCase(
-            story_repo, dev_repo, config_repo, load_balancer, idleness_detector, schedule_calculator
+            story_repo, dev_repo, config_repo, load_balancer, idleness_detector, schedule_calculator, backlog_sorter
         )
 
         # Act
         with caplog.at_level(logging.INFO):
-            total, warnings = use_case.execute()
+            total, warnings, metrics = use_case.execute()
 
         # Assert
         assert "Encontradas 2 ondas para processar: [1, 3]" in caplog.text
@@ -266,6 +288,7 @@ class TestAllocateDevelopersUseCase:
         load_balancer = Mock()
         idleness_detector = Mock()
         schedule_calculator = Mock()
+        backlog_sorter = Mock()
 
         dev1 = Developer(id="1", name="Dev 1")
 
@@ -274,12 +297,13 @@ class TestAllocateDevelopersUseCase:
         config_repo.get.return_value = Configuration()
 
         use_case = AllocateDevelopersUseCase(
-            story_repo, dev_repo, config_repo, load_balancer, idleness_detector, schedule_calculator
+            story_repo, dev_repo, config_repo, load_balancer, idleness_detector, schedule_calculator, backlog_sorter
         )
 
         # Act
-        total, warnings = use_case.execute()
+        total, warnings, metrics = use_case.execute()
 
         # Assert
         assert total == 0
         assert warnings == []
+        assert metrics.stories_processed == 0

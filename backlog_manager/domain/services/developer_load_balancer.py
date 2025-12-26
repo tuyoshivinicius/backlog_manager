@@ -1,9 +1,11 @@
 """Serviço para balancear carga de desenvolvedores."""
 import random
-from typing import Dict, List, Optional
+from datetime import date
+from typing import Dict, List, Optional, Tuple
 
 from backlog_manager.domain.entities.developer import Developer
 from backlog_manager.domain.entities.story import Story
+from backlog_manager.domain.services.schedule_calculator import ScheduleCalculator
 from backlog_manager.domain.value_objects.allocation_criteria import AllocationCriteria
 
 
@@ -205,6 +207,150 @@ class DeveloperLoadBalancer:
         return None
 
     @staticmethod
+    def _get_developer_last_allocation(
+        developer_id: int,
+        story_map: Dict[str, Story],
+    ) -> Optional[Story]:
+        """
+        Retorna a última história alocada a um desenvolvedor.
+
+        Considera a história com a maior data de fim (end_date).
+
+        Args:
+            developer_id: ID do desenvolvedor
+            story_map: Mapa de ID -> Story
+
+        Returns:
+            A história mais recente do desenvolvedor, ou None se não houver
+        """
+        dev_stories = [
+            story for story in story_map.values()
+            if story.developer_id == developer_id and story.end_date is not None
+        ]
+
+        if not dev_stories:
+            return None
+
+        # Retornar a história com a maior end_date
+        return max(dev_stories, key=lambda s: s.end_date)  # type: ignore
+
+    @staticmethod
+    def _get_developer_last_allocation_before(
+        developer_id: int,
+        story_map: Dict[str, Story],
+        before_date: date,
+        current_wave: Optional[int] = None,
+    ) -> Optional[Story]:
+        """
+        Retorna a última história alocada a um desenvolvedor que termina ANTES de uma data.
+
+        Usado para calcular ociosidade: encontra a história que termina imediatamente
+        antes da nova história começar, para medir o gap entre elas.
+
+        Se current_wave for fornecido, considera apenas histórias DA MESMA ONDA,
+        pois a ociosidade entre ondas diferentes é permitida.
+
+        Args:
+            developer_id: ID do desenvolvedor
+            story_map: Mapa de ID -> Story
+            before_date: Data limite (busca histórias que terminam ANTES desta data)
+            current_wave: Se fornecido, filtra apenas histórias desta onda
+
+        Returns:
+            A história mais recente que termina antes de before_date, ou None
+        """
+        dev_stories = [
+            story for story in story_map.values()
+            if story.developer_id == developer_id
+            and story.end_date is not None
+            and story.end_date < before_date  # Somente histórias que terminam ANTES
+            and (current_wave is None or story.wave == current_wave)  # Filtrar por onda
+        ]
+
+        if not dev_stories:
+            return None
+
+        # Retornar a história com a maior end_date (mais próxima de before_date)
+        return max(dev_stories, key=lambda s: s.end_date)  # type: ignore
+
+    @staticmethod
+    def _calculate_idle_days(
+        last_story_end_date: date,
+        new_story_start_date: date,
+    ) -> int:
+        """
+        Calcula os dias úteis ociosos entre duas histórias.
+
+        Usa o ScheduleCalculator para considerar feriados brasileiros.
+
+        Args:
+            last_story_end_date: Data de fim da última história
+            new_story_start_date: Data de início da nova história
+
+        Returns:
+            Número de dias úteis ociosos (0 se não houver gap ou sobreposição)
+        """
+        if new_story_start_date <= last_story_end_date:
+            return 0
+
+        calculator = ScheduleCalculator()
+        return calculator.count_workdays_between(last_story_end_date, new_story_start_date)
+
+    @staticmethod
+    def _filter_developers_by_idle_threshold(
+        developers: List[Developer],
+        story_map: Dict[str, Story],
+        new_story_start_date: date,
+        max_idle_days: int,
+        current_wave: Optional[int] = None,
+    ) -> Tuple[List[Developer], Dict[int, int]]:
+        """
+        Filtra desenvolvedores que estão dentro do limite de ociosidade NA MESMA ONDA.
+
+        Usa _get_developer_last_allocation_before para encontrar a história
+        que termina imediatamente ANTES da nova história, calculando assim
+        o gap real de ociosidade.
+
+        Se current_wave for fornecido, apenas considera histórias da mesma onda
+        para o cálculo de ociosidade. Gaps entre ondas diferentes são permitidos.
+
+        Args:
+            developers: Lista de desenvolvedores a filtrar
+            story_map: Mapa de ID -> Story
+            new_story_start_date: Data de início da nova história
+            max_idle_days: Máximo de dias ociosos permitidos
+            current_wave: Onda atual (se fornecido, filtra apenas por esta onda)
+
+        Returns:
+            Tupla (lista de devs dentro do limite, dicionário dev_id -> idle_days)
+        """
+        within_threshold: List[Developer] = []
+        idle_days_map: Dict[int, int] = {}
+
+        for dev in developers:
+            # Buscar última alocação que termina ANTES da nova história (na mesma onda)
+            last_allocation = DeveloperLoadBalancer._get_developer_last_allocation_before(
+                dev.id, story_map, new_story_start_date, current_wave
+            )
+
+            if last_allocation is None:
+                # Desenvolvedor sem alocações anteriores à nova história nesta onda
+                # Pode ser: (1) sem histórias na onda, ou (2) primeira história na onda
+                idle_days_map[dev.id] = 0
+                within_threshold.append(dev)
+            else:
+                idle_days = DeveloperLoadBalancer._calculate_idle_days(
+                    last_allocation.end_date,  # type: ignore
+                    new_story_start_date,
+                )
+                idle_days_map[dev.id] = idle_days
+
+                if idle_days <= max_idle_days:
+                    within_threshold.append(dev)
+
+        return within_threshold, idle_days_map
+
+    @staticmethod
     def get_developer_for_story(
         story: Story,
         story_map: Dict[str, Story],
@@ -212,6 +358,9 @@ class DeveloperLoadBalancer:
         all_stories: List[Story],
         allocation_criteria: AllocationCriteria = AllocationCriteria.LOAD_BALANCING,
         random_seed: Optional[int] = None,
+        new_story_start_date: Optional[date] = None,
+        max_idle_days: Optional[int] = None,
+        current_wave: Optional[int] = None,
     ) -> Optional[Developer]:
         """
         Seleciona o melhor desenvolvedor para uma história.
@@ -222,6 +371,16 @@ class DeveloperLoadBalancer:
         - DEPENDENCY_OWNER: Tenta alocar ao "dono" de uma dependência primeiro,
           com fallback para balanceamento de carga
 
+        Adicionalmente, se max_idle_days for fornecido, filtra desenvolvedores
+        que estão dentro do limite de ociosidade considerando TODAS as ondas.
+        Se nenhum estiver dentro do limite, usa o desenvolvedor com menor
+        ociosidade (fallback).
+
+        NOTA: O parâmetro current_wave NÃO é usado para filtrar ociosidade na
+        seleção. A ociosidade é calculada desde a última história do desenvolvedor,
+        independente da onda. Isso garante que max_idle_days seja respeitado mesmo
+        na primeira história de cada onda.
+
         Args:
             story: História a ser alocada
             story_map: Mapa de ID -> Story para busca O(1)
@@ -229,6 +388,9 @@ class DeveloperLoadBalancer:
             all_stories: Todas as histórias (para calcular carga)
             allocation_criteria: Critério de alocação configurado
             random_seed: Seed opcional para testes determinísticos
+            new_story_start_date: Data de início da nova história (para cálculo de ociosidade)
+            max_idle_days: Máximo de dias ociosos permitidos
+            current_wave: Onda atual (não usado para seleção, mantido para compatibilidade)
 
         Returns:
             Desenvolvedor selecionado, ou None se não há disponíveis
@@ -236,17 +398,41 @@ class DeveloperLoadBalancer:
         if not available_developers:
             return None
 
+        # Aplicar filtro de ociosidade se parâmetros fornecidos
+        candidates = available_developers
+        idle_days_map: Dict[int, int] = {}
+
+        if new_story_start_date is not None and max_idle_days is not None:
+            # NOTA: Usamos current_wave=None para considerar histórias de TODAS as ondas
+            # na seleção do desenvolvedor. O parâmetro current_wave é usado apenas para
+            # detecção de warnings de ociosidade, não para seleção.
+            # Isso garante que max_idle_days seja respeitado mesmo na primeira história
+            # de cada onda.
+            within_threshold, idle_days_map = DeveloperLoadBalancer._filter_developers_by_idle_threshold(
+                available_developers, story_map, new_story_start_date, max_idle_days,
+                current_wave=None  # Considera ociosidade global, não por onda
+            )
+
+            if within_threshold:
+                # Usar apenas desenvolvedores dentro do limite de ociosidade
+                candidates = within_threshold
+            else:
+                # Nenhum dev dentro do limite: manter todos disponíveis como candidatos
+                # O critério de alocação (DEPENDENCY_OWNER → balanceamento) será aplicado
+                # normalmente, e o fallback final usará o menos ocioso se necessário.
+                candidates = available_developers
+
         # Se critério for DEPENDENCY_OWNER, tentar priorizar proprietário de dependência
         if allocation_criteria == AllocationCriteria.DEPENDENCY_OWNER:
             dependency_owner = DeveloperLoadBalancer.get_dependency_owner(
-                story, story_map, available_developers
+                story, story_map, candidates
             )
             if dependency_owner:
                 return dependency_owner
 
         # Usar balanceamento de carga (seja como critério principal ou fallback)
         sorted_devs = DeveloperLoadBalancer.sort_by_load_random_tiebreak(
-            available_developers, all_stories, random_seed
+            candidates, all_stories, random_seed
         )
 
         return sorted_devs[0] if sorted_devs else None

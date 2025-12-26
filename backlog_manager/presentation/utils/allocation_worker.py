@@ -14,7 +14,7 @@ class AllocationWorker(QThread):
     """
 
     # Signals para comunicação thread-safe
-    finished = Signal(int, list)  # (allocated_count, warnings: List[IdlenessWarning])
+    finished = Signal(int, list)  # (allocated_count, warnings: List[AllocationWarning])
     error = Signal(str)  # (error_message)
 
     def __init__(self, allocate_use_case: AllocateDevelopersUseCase):
@@ -35,7 +35,8 @@ class AllocationWorker(QThread):
         """
         try:
             # Executar alocação (pode demorar)
-            allocated_count, warnings = self._use_case.execute()
+            # Retorna (total, warnings, metrics) - métricas já são logadas pelo use case
+            allocated_count, warnings, _metrics = self._use_case.execute()
 
             # Sucesso - emitir resultado
             self.finished.emit(allocated_count, warnings)

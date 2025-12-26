@@ -41,7 +41,23 @@
       "Bash(./run_debug.bat)",
       "Bash(ls:*)",
       "Bash(.venv/Scripts/python.exe:*)",
-      "Bash(\"../.venv/Scripts/python.exe\" main.py)"
+      "Bash(\"../.venv/Scripts/python.exe\" main.py)",
+      "Bash(timeout /t 5)",
+      "Bash(git add:*)",
+      "Bash(backlog_manager/domain/value_objects/allocation_criteria.py )",
+      "Bash(backlog_manager/infrastructure/database/migrations/005_add_allocation_criteria.py )",
+      "Bash(backlog_manager/domain/entities/configuration.py )",
+      "Bash(backlog_manager/application/dto/configuration_dto.py )",
+      "Bash(backlog_manager/application/dto/converters.py )",
+      "Bash(backlog_manager/application/use_cases/configuration/update_configuration.py )",
+      "Bash(backlog_manager/domain/services/developer_load_balancer.py )",
+      "Bash(backlog_manager/application/use_cases/schedule/allocate_developers.py )",
+      "Bash(backlog_manager/infrastructure/database/repositories/sqlite_configuration_repository.py )",
+      "Bash(backlog_manager/infrastructure/database/sqlite_connection.py )",
+      "Bash(backlog_manager/presentation/views/configuration_dialog.py )",
+      "Bash(backlog_manager/presentation/controllers/main_controller.py)",
+      "Bash(git commit:*)",
+      "Bash(cat:*)"
     ]
   }
 }

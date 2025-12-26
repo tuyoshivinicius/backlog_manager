@@ -4,17 +4,17 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QTextEdit, QPushButton, QWidget
 )
 from PySide6.QtCore import Qt
-from backlog_manager.domain.services.idleness_detector import IdlenessWarning
+from backlog_manager.domain.services.idleness_detector import AllocationWarning
 
 
 class AllocationReportDialog(QDialog):
     """
     Dialog para exibir relatório de alocação de desenvolvedores.
 
-    Mostra warnings de ociosidade detectados.
+    Mostra warnings de ociosidade e deadlock detectados.
     """
 
-    def __init__(self, parent: QWidget, allocated_count: int, warnings: List[IdlenessWarning]):
+    def __init__(self, parent: QWidget, allocated_count: int, warnings: List[AllocationWarning]):
         """
         Inicializa dialog.
 
@@ -45,7 +45,7 @@ class AllocationReportDialog(QDialog):
         # Warnings (se houver)
         if self._warnings:
             warning_label = QLabel(
-                f"⚠️ {len(self._warnings)} aviso(s) de ociosidade detectado(s):"
+                f"⚠️ {len(self._warnings)} aviso(s) detectado(s):"
             )
             warning_label.setStyleSheet("font-size: 12pt; font-weight: bold; color: orange;")
             layout.addWidget(warning_label)

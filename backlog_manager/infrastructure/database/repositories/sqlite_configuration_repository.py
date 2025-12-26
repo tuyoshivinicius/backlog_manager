@@ -44,7 +44,8 @@ class SQLiteConfigurationRepository(ConfigurationRepository):
                     story_points_per_sprint,
                     workdays_per_sprint,
                     roadmap_start_date,
-                    allocation_criteria
+                    allocation_criteria,
+                    max_idle_days
                 FROM configuration
                 WHERE id = 1
             """)
@@ -61,17 +62,22 @@ class SQLiteConfigurationRepository(ConfigurationRepository):
                 )
                 allocation_criteria = AllocationCriteria.LOAD_BALANCING
 
+            # Carregar max_idle_days (com fallback para 3)
+            max_idle_days = row["max_idle_days"] if row["max_idle_days"] is not None else 3
+
             # Garantido existir (criado no schema)
             config = Configuration(
                 story_points_per_sprint=row["story_points_per_sprint"],
                 workdays_per_sprint=row["workdays_per_sprint"],
                 roadmap_start_date=date.fromisoformat(row["roadmap_start_date"]) if row["roadmap_start_date"] else None,
                 allocation_criteria=allocation_criteria,
+                max_idle_days=max_idle_days,
             )
             logger.debug(
                 f"Configuração carregada: story_points_per_sprint={config.story_points_per_sprint}, "
                 f"workdays_per_sprint={config.workdays_per_sprint}, "
-                f"allocation_criteria={config.allocation_criteria.value}"
+                f"allocation_criteria={config.allocation_criteria.value}, "
+                f"max_idle_days={config.max_idle_days}"
             )
             return config
 
@@ -89,7 +95,8 @@ class SQLiteConfigurationRepository(ConfigurationRepository):
         logger.debug(
             f"Salvando configuração: story_points_per_sprint={config.story_points_per_sprint}, "
             f"workdays_per_sprint={config.workdays_per_sprint}, "
-            f"allocation_criteria={config.allocation_criteria.value}"
+            f"allocation_criteria={config.allocation_criteria.value}, "
+            f"max_idle_days={config.max_idle_days}"
         )
 
         try:
@@ -100,7 +107,8 @@ class SQLiteConfigurationRepository(ConfigurationRepository):
                 SET story_points_per_sprint = ?,
                     workdays_per_sprint = ?,
                     roadmap_start_date = ?,
-                    allocation_criteria = ?
+                    allocation_criteria = ?,
+                    max_idle_days = ?
                 WHERE id = 1
             """,
                 (
@@ -108,6 +116,7 @@ class SQLiteConfigurationRepository(ConfigurationRepository):
                     config.workdays_per_sprint,
                     config.roadmap_start_date.isoformat() if config.roadmap_start_date else None,
                     config.allocation_criteria.value,
+                    config.max_idle_days,
                 ),
             )
             logger.debug("Configuração salva com sucesso")

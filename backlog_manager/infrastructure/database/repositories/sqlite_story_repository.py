@@ -200,6 +200,66 @@ class SQLiteStoryRepository(StoryRepository):
         logger.debug(f"Carregando feature para história: id='{story.id}', feature_id='{story.feature_id}'")
         self._load_feature(story)
 
+    def save_batch(self, stories: List[Story]) -> None:
+        """
+        Salva múltiplas histórias em uma única transação.
+
+        Mais eficiente que chamar save() repetidamente, pois:
+        - Usa uma única transação
+        - Executa executemany() para inserções em batch
+
+        Args:
+            stories: Lista de histórias a serem salvas
+        """
+        if not stories:
+            logger.debug("save_batch: nenhuma história para salvar")
+            return
+
+        logger.debug(f"Salvando {len(stories)} histórias em batch")
+
+        try:
+            cursor = self._conn.cursor()
+
+            # Preparar dados para batch insert
+            rows_data = [
+                (
+                    story.id,
+                    story.component,
+                    story.name,
+                    story.status.value,
+                    story.priority,
+                    story.feature_id,
+                    story.developer_id,
+                    json.dumps(story.dependencies),
+                    story.story_point.value,
+                    story.start_date.isoformat() if story.start_date else None,
+                    story.end_date.isoformat() if story.end_date else None,
+                    story.duration,
+                    story.schedule_order,
+                )
+                for story in stories
+            ]
+
+            # Executar batch usando executemany
+            cursor.executemany(
+                """
+                REPLACE INTO stories (
+                    id, component, name, status, priority, feature_id,
+                    developer_id, dependencies, story_point,
+                    start_date, end_date, duration, schedule_order
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                rows_data,
+            )
+
+            self._conn.commit()
+            logger.debug(f"Batch de {len(stories)} histórias salvo com sucesso")
+
+        except sqlite3.Error as e:
+            logger.error(f"Erro ao salvar batch de histórias: {e}", exc_info=True)
+            self._conn.rollback()
+            raise
+
     # Métodos auxiliares privados
 
     def _entity_to_row(self, story: Story) -> dict:

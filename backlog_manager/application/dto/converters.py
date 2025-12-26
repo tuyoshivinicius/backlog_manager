@@ -120,6 +120,7 @@ def configuration_to_dto(config: Configuration) -> ConfigurationDTO:
         velocity_per_day=config.velocity_per_day,
         roadmap_start_date=config.roadmap_start_date,
         allocation_criteria=config.allocation_criteria.value,
+        max_idle_days=config.max_idle_days,
     )
 
 
@@ -144,6 +145,7 @@ def dto_to_configuration(dto: ConfigurationDTO) -> Configuration:
         workdays_per_sprint=dto.workdays_per_sprint,
         roadmap_start_date=dto.roadmap_start_date,
         allocation_criteria=allocation_criteria,
+        max_idle_days=dto.max_idle_days,
     )
 
 

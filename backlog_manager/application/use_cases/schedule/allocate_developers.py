@@ -191,9 +191,13 @@ class AllocateDevelopersUseCase:
 
         config = self._configuration_repository.get()
 
-        # Armazenar critério de alocação para uso durante o algoritmo
+        # Armazenar critério de alocação e max_idle_days para uso durante o algoritmo
         self._allocation_criteria = config.allocation_criteria
-        logger.info(f"Critério de alocação configurado: {self._allocation_criteria.value}")
+        self._max_idle_days = config.max_idle_days
+        logger.info(
+            f"Critério de alocação configurado: {self._allocation_criteria.value}, "
+            f"max_idle_days: {self._max_idle_days}"
+        )
 
         # 2. PREPARAR: buscar todas histórias UMA ÚNICA VEZ (cache em memória)
         all_stories = self._story_repository.find_all()
@@ -271,8 +275,16 @@ class AllocateDevelopersUseCase:
 
         # 8. DETECTAR OCIOSIDADE após todas as alocações (usa cache em memória)
         logger.info("Detectando períodos de ociosidade")
-        idleness_warnings = self._idleness_detector.detect_idleness(all_stories)
-        all_warnings.extend(idleness_warnings)
+
+        # 8.1 Ociosidade DENTRO das ondas (limitada por max_idle_days)
+        within_wave_warnings = self._idleness_detector.detect_idleness(all_stories)
+        all_warnings.extend(within_wave_warnings)
+        logger.debug(f"Ociosidade dentro das ondas: {len(within_wave_warnings)} warnings")
+
+        # 8.2 Ociosidade ENTRE ondas (permitida, apenas informativo)
+        between_waves_infos = self._idleness_detector.detect_between_waves_idleness(all_stories)
+        all_warnings.extend(between_waves_infos)
+        logger.debug(f"Ociosidade entre ondas: {len(between_waves_infos)} infos")
 
         # FINALIZAR MÉTRICAS
         self._metrics.total_time_seconds = time.perf_counter() - start_time
@@ -367,15 +379,18 @@ class AllocateDevelopersUseCase:
                         story, self._story_map, available_devs
                     )
 
-                    # Usa get_developer_for_story que considera o critério configurado:
-                    # - LOAD_BALANCING: Usa apenas balanceamento de carga
-                    # - DEPENDENCY_OWNER: Prioriza "dono" de dependência, fallback para balanceamento
+                    # Usa get_developer_for_story que considera:
+                    # - Critério de alocação (LOAD_BALANCING ou DEPENDENCY_OWNER)
+                    # - Limite de ociosidade (max_idle_days) DENTRO DA MESMA ONDA
                     selected_dev = self._load_balancer.get_developer_for_story(
                         story,
                         self._story_map,
                         available_devs,
                         all_stories,
                         allocation_criteria=self._allocation_criteria,
+                        new_story_start_date=story.start_date,
+                        max_idle_days=self._max_idle_days,
+                        current_wave=wave,  # Ociosidade só é verificada na mesma onda
                     )
 
                     if selected_dev is None:

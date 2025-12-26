@@ -38,6 +38,7 @@ class UpdateConfigurationUseCase:
         workdays_per_sprint: int,
         roadmap_start_date: Optional[date] = None,
         allocation_criteria: Optional[str] = None,
+        max_idle_days: Optional[int] = None,
     ) -> Tuple[ConfigurationDTO, bool]:
         """
         Atualiza configuração do sistema.
@@ -47,6 +48,7 @@ class UpdateConfigurationUseCase:
             workdays_per_sprint: Novos dias úteis (obrigatório)
             roadmap_start_date: Nova data de início do roadmap (opcional, None para limpar)
             allocation_criteria: Critério de alocação (opcional, None mantém o atual)
+            max_idle_days: Máximo de dias úteis ociosos (opcional, None mantém o atual)
 
         Returns:
             Tupla (ConfigurationDTO atualizado, requer_recalculo: bool)
@@ -57,7 +59,7 @@ class UpdateConfigurationUseCase:
         logger.info(
             f"Atualizando configuração: story_points_per_sprint={story_points_per_sprint}, "
             f"workdays_per_sprint={workdays_per_sprint}, roadmap_start_date={roadmap_start_date}, "
-            f"allocation_criteria={allocation_criteria}"
+            f"allocation_criteria={allocation_criteria}, max_idle_days={max_idle_days}"
         )
 
         # 1. Buscar configuração atual
@@ -66,7 +68,8 @@ class UpdateConfigurationUseCase:
             f"Configuração atual: story_points_per_sprint={current.story_points_per_sprint}, "
             f"workdays_per_sprint={current.workdays_per_sprint}, "
             f"roadmap_start_date={current.roadmap_start_date}, "
-            f"allocation_criteria={current.allocation_criteria.value}"
+            f"allocation_criteria={current.allocation_criteria.value}, "
+            f"max_idle_days={current.max_idle_days}"
         )
 
         # Converter allocation_criteria de string para enum (se fornecido)
@@ -81,6 +84,9 @@ class UpdateConfigurationUseCase:
                 new_allocation_criteria = current.allocation_criteria
         else:
             new_allocation_criteria = current.allocation_criteria
+
+        # Usar max_idle_days atual se não fornecido
+        new_max_idle_days = max_idle_days if max_idle_days is not None else current.max_idle_days
 
         # 2. Verificar se houve mudança (que afeta cronograma)
         requires_recalculation = (
@@ -100,6 +106,7 @@ class UpdateConfigurationUseCase:
             workdays_per_sprint=workdays_per_sprint,
             roadmap_start_date=roadmap_start_date,
             allocation_criteria=new_allocation_criteria,
+            max_idle_days=new_max_idle_days,
         )
         logger.debug("Nova configuração validada")
 
@@ -108,6 +115,7 @@ class UpdateConfigurationUseCase:
         logger.info(
             f"Configuração atualizada: velocity={new_config.velocity_per_day:.2f} pts/dia, "
             f"allocation_criteria={new_config.allocation_criteria.value}, "
+            f"max_idle_days={new_config.max_idle_days}, "
             f"requer_recalculo={requires_recalculation}"
         )
 

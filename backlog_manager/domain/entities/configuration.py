@@ -16,12 +16,14 @@ class Configuration:
         workdays_per_sprint: Dias úteis em uma sprint
         roadmap_start_date: Data de início do roadmap (opcional)
         allocation_criteria: Critério de alocação de desenvolvedores
+        max_idle_days: Máximo de dias úteis ociosos permitidos DENTRO DA MESMA ONDA
     """
 
     story_points_per_sprint: int = 21
     workdays_per_sprint: int = 15
     roadmap_start_date: Optional[date] = None
     allocation_criteria: AllocationCriteria = AllocationCriteria.LOAD_BALANCING
+    max_idle_days: int = 3  # Padrão: 3 dias úteis de ociosidade máxima (mín: 2)
 
     def __post_init__(self) -> None:
         """Valida configuração."""
@@ -42,6 +44,9 @@ class Configuration:
 
         if self.roadmap_start_date is not None and self.roadmap_start_date.weekday() >= 5:
             raise ValueError("Data de início do roadmap deve ser um dia útil (segunda a sexta)")
+
+        if self.max_idle_days < 2:
+            raise ValueError("Ociosidade máxima deve ser pelo menos 2 dias")
 
     @property
     def velocity_per_day(self) -> float:

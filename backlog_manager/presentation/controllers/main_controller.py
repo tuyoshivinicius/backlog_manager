@@ -761,7 +761,7 @@ class MainController:
 
         Args:
             data: Dicionário com story_points_per_sprint, workdays_per_sprint,
-                  roadmap_start_date, allocation_criteria
+                  roadmap_start_date, allocation_criteria, max_idle_days
         """
         try:
             # Extrair dados
@@ -769,6 +769,7 @@ class MainController:
             workdays_per_sprint = data["workdays_per_sprint"]
             roadmap_start_date = data.get("roadmap_start_date")  # Opcional
             allocation_criteria = data.get("allocation_criteria")  # Opcional
+            max_idle_days = data.get("max_idle_days")  # Opcional
 
             # Atualizar configuração
             updated_config, requires_recalc = self._update_config_use_case.execute(
@@ -776,6 +777,7 @@ class MainController:
                 workdays_per_sprint=workdays_per_sprint,
                 roadmap_start_date=roadmap_start_date,
                 allocation_criteria=allocation_criteria,
+                max_idle_days=max_idle_days,
             )
 
             # Se houve mudança que requer recálculo, executar automaticamente

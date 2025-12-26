@@ -178,3 +178,91 @@ def test_saves_dates_correctly(repository):
     assert found.start_date == date(2025, 1, 15)
     assert found.end_date == date(2025, 1, 20)
     assert found.duration == 4
+
+
+def test_save_batch_saves_multiple_stories(repository):
+    """Deve salvar múltiplas histórias em batch."""
+    stories = [
+        Story(
+            id="US-001",
+            component="F1",
+            name="S1",
+            feature_id="feature_default",
+            status=StoryStatus.BACKLOG,
+            priority=0,
+            developer_id=None,
+            dependencies=[],
+            story_point=StoryPoint(3),
+        ),
+        Story(
+            id="US-002",
+            component="F1",
+            name="S2",
+            feature_id="feature_default",
+            status=StoryStatus.EXECUCAO,
+            priority=1,
+            developer_id=None,  # None para evitar FK constraint
+            dependencies=["US-001"],
+            story_point=StoryPoint(5),
+            start_date=date(2025, 1, 15),
+            end_date=date(2025, 1, 20),
+        ),
+        Story(
+            id="US-003",
+            component="F2",
+            name="S3",
+            feature_id="feature_default",
+            status=StoryStatus.BACKLOG,
+            priority=2,
+            developer_id=None,
+            dependencies=[],
+            story_point=StoryPoint(8),
+        ),
+    ]
+
+    # Salvar em batch
+    repository.save_batch(stories)
+
+    # Verificar que todas foram salvas
+    all_stories = repository.find_all()
+    assert len(all_stories) == 3
+
+    # Verificar dados de cada história
+    found1 = repository.find_by_id("US-001")
+    assert found1.name == "S1"
+    assert found1.story_point.value == 3
+
+    found2 = repository.find_by_id("US-002")
+    assert found2.name == "S2"
+    assert found2.dependencies == ["US-001"]
+    assert found2.start_date == date(2025, 1, 15)
+
+    found3 = repository.find_by_id("US-003")
+    assert found3.component == "F2"
+    assert found3.story_point.value == 8
+
+
+def test_save_batch_empty_list(repository):
+    """Deve lidar com lista vazia sem erro."""
+    # Não deve lançar exceção
+    repository.save_batch([])
+
+    # Deve retornar lista vazia
+    all_stories = repository.find_all()
+    assert len(all_stories) == 0
+
+
+def test_save_batch_updates_existing_stories(repository, sample_story):
+    """Deve atualizar histórias existentes via save_batch."""
+    # Salvar história inicial
+    repository.save(sample_story)
+
+    # Atualizar via batch
+    sample_story.name = "Nome Atualizado via Batch"
+    sample_story.status = StoryStatus.CONCLUIDO
+    repository.save_batch([sample_story])
+
+    # Verificar atualização
+    found = repository.find_by_id("US-001")
+    assert found.name == "Nome Atualizado via Batch"
+    assert found.status == StoryStatus.CONCLUIDO

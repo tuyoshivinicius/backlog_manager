@@ -178,6 +178,26 @@ class SQLiteConnection:
             print(f"[INFO] Migration 005: {e}")
             pass
 
+        # Migration 006: Adicionar coluna max_idle_days
+        try:
+            migration_006_path = migrations_path / "006_add_max_idle_days.py"
+            if migration_006_path.exists():
+                import importlib.util
+
+                spec = importlib.util.spec_from_file_location("migration_006", migration_006_path)
+                if spec and spec.loader:
+                    migration_006 = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(migration_006)
+
+                    # Executar migration (idempotente)
+                    applied = migration_006.apply_if_needed(self._connection)
+                    if applied:
+                        print("[OK] Migration 006 aplicada: coluna max_idle_days adicionada")
+        except Exception as e:
+            # Migration já aplicada ou erro - não falhar
+            print(f"[INFO] Migration 006: {e}")
+            pass
+
     def get_connection(self) -> sqlite3.Connection:
         """
         Retorna conexão ativa.

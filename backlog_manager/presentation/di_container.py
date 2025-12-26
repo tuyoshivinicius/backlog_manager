@@ -146,7 +146,8 @@ class DIContainer:
         self.schedule_calculator = ScheduleCalculator()
         self.allocation_validator = AllocationValidator()
         self.developer_load_balancer = DeveloperLoadBalancer()
-        self.idleness_detector = IdlenessDetector()
+        # IdlenessDetector usa ScheduleCalculator para cálculo de dias úteis
+        self.idleness_detector = IdlenessDetector(self.schedule_calculator)
         self.wave_dependency_validator = WaveDependencyValidator()
 
     def _create_repositories(self) -> None:

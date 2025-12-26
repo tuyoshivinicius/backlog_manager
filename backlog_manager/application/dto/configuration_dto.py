@@ -17,3 +17,4 @@ class ConfigurationDTO:
     velocity_per_day: float
     roadmap_start_date: Optional[date] = None
     allocation_criteria: str = "LOAD_BALANCING"  # Valor do enum como string
+    max_idle_days: int = 3  # Máximo de dias úteis ociosos permitidos

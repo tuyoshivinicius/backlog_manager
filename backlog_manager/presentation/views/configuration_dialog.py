@@ -32,6 +32,7 @@ class ConfigurationDialog(QDialog):
 
     DEFAULT_SP_PER_SPRINT = 21
     DEFAULT_WORKDAYS_PER_SPRINT = 15
+    DEFAULT_MAX_IDLE_DAYS = 3
 
     def __init__(self, parent=None, configuration: Optional[ConfigurationDTO] = None):
         """
@@ -116,6 +117,21 @@ class ConfigurationDialog(QDialog):
         )
         self._allocation_criteria_combo.setToolTip(tooltip_text)
         form_layout.addRow("Critério de Alocação:", self._allocation_criteria_combo)
+
+        # Máximo de Dias Ociosos (dentro da mesma onda)
+        self._max_idle_days_spin = QSpinBox()
+        self._max_idle_days_spin.setRange(2, 30)  # Mínimo de 2 dias
+        self._max_idle_days_spin.setValue(self.DEFAULT_MAX_IDLE_DAYS)
+        self._max_idle_days_spin.setSuffix(" dias")
+        self._max_idle_days_spin.setToolTip(
+            "Máximo de dias úteis ociosos permitidos DENTRO DA MESMA ONDA.\n\n"
+            "Este limite só se aplica entre histórias da mesma onda.\n"
+            "A ociosidade entre ondas diferentes é permitida normalmente,\n"
+            "pois as ondas são processadas sequencialmente.\n\n"
+            "Se todos os desenvolvedores excederem este limite na onda,\n"
+            "será escolhido o com menor ociosidade."
+        )
+        form_layout.addRow("Ociosidade Máxima na Onda:", self._max_idle_days_spin)
 
         main_layout.addLayout(form_layout)
 
@@ -202,6 +218,10 @@ class ConfigurationDialog(QDialog):
             if index >= 0:
                 self._allocation_criteria_combo.setCurrentIndex(index)
 
+        # Carregar máximo de dias ociosos
+        if hasattr(configuration, "max_idle_days") and configuration.max_idle_days is not None:
+            self._max_idle_days_spin.setValue(configuration.max_idle_days)
+
     def _update_velocity_label(self) -> None:
         """Atualiza label de velocidade calculada."""
         sp = self._sp_per_sprint_spin.value()
@@ -253,6 +273,7 @@ class ConfigurationDialog(QDialog):
         """Restaura valores padrão."""
         self._sp_per_sprint_spin.setValue(self.DEFAULT_SP_PER_SPRINT)
         self._workdays_per_sprint_spin.setValue(self.DEFAULT_WORKDAYS_PER_SPRINT)
+        self._max_idle_days_spin.setValue(self.DEFAULT_MAX_IDLE_DAYS)
         self._set_current_date()
 
     def _on_save(self) -> None:
@@ -275,6 +296,7 @@ class ConfigurationDialog(QDialog):
             "workdays_per_sprint": self._workdays_per_sprint_spin.value(),
             "roadmap_start_date": python_date,
             "allocation_criteria": allocation_criteria,
+            "max_idle_days": self._max_idle_days_spin.value(),
         }
 
         # Emitir sinal

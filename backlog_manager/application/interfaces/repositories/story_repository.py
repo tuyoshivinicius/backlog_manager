@@ -78,3 +78,15 @@ class StoryRepository(ABC):
             story: História para carregar a feature
         """
         pass
+
+    @abstractmethod
+    def save_batch(self, stories: List[Story]) -> None:
+        """
+        Salva múltiplas histórias em uma única transação.
+
+        Mais eficiente que chamar save() repetidamente.
+
+        Args:
+            stories: Lista de histórias a serem salvas
+        """
+        pass
