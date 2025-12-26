@@ -468,6 +468,50 @@ Antes de implementar, pode ser útil investigar:
 
 ---
 
-**Status:** ✅ IMPLEMENTADO
+## 11. Correção Adicional: Loop de Estabilização
+
+### 11.1 Problema Identificado
+
+Após a implementação inicial (Opção D), foi identificado que ainda havia violações de dependência:
+- B1 iniciava antes de T4 (sua dependência) terminar
+- O problema era que `_resolve_allocation_conflicts` ajustava datas para resolver conflitos de período, mas podia criar novas violações de dependência
+
+### 11.2 Solução: Loop de Estabilização
+
+Modificado o fluxo para criar um loop que alterna entre:
+1. `_final_dependency_check` - corrige violações de dependência
+2. `_resolve_allocation_conflicts` - resolve conflitos de período
+
+O loop repete até que nenhum ajuste seja necessário (máximo 10 passadas).
+
+**Código implementado:**
+```python
+# 5. VALIDAÇÃO FINAL: Loop de estabilização
+max_stabilization_passes = 10
+total_violations_fixed = 0
+total_conflicts_resolved = 0
+
+for pass_num in range(max_stabilization_passes):
+    # 5.1 Verificar e ajustar dependências
+    violations_fixed = self._final_dependency_check(all_stories, config)
+    total_violations_fixed += violations_fixed
+
+    # 5.2 Resolver conflitos de alocação
+    conflicts_resolved = self._resolve_allocation_conflicts(all_stories, developers)
+    total_conflicts_resolved += conflicts_resolved
+
+    # Se nenhum ajuste foi feito, estabilizou
+    if violations_fixed == 0 and conflicts_resolved == 0:
+        break
+```
+
+### 11.3 Também Removido
+
+O `continue` que pulava histórias alocadas em `_final_dependency_check` foi removido.
+Agora TODAS as histórias (alocadas ou não) são verificadas para violações de dependência.
+
+---
+
+**Status:** ✅ IMPLEMENTADO (v2)
 **Data de Implementação:** 2025-12-26
-**Solução Adotada:** Opção D (A + C)
+**Solução Adotada:** Opção D + Loop de Estabilização

@@ -3,11 +3,13 @@ from typing import Optional
 
 from backlog_manager.application.interfaces.repositories.configuration_repository import ConfigurationRepository
 from backlog_manager.application.interfaces.repositories.developer_repository import DeveloperRepository
+from backlog_manager.application.interfaces.repositories.feature_repository import FeatureRepository
 from backlog_manager.application.interfaces.repositories.story_repository import StoryRepository
 from backlog_manager.infrastructure.database.repositories.sqlite_configuration_repository import (
     SQLiteConfigurationRepository,
 )
 from backlog_manager.infrastructure.database.repositories.sqlite_developer_repository import SQLiteDeveloperRepository
+from backlog_manager.infrastructure.database.repositories.sqlite_feature_repository import SQLiteFeatureRepository
 from backlog_manager.infrastructure.database.repositories.sqlite_story_repository import SQLiteStoryRepository
 from backlog_manager.infrastructure.database.sqlite_connection import SQLiteConnection
 
@@ -38,6 +40,7 @@ class UnitOfWork:
         # Repositories
         self.stories: StoryRepository = SQLiteStoryRepository(self._connection)
         self.developers: DeveloperRepository = SQLiteDeveloperRepository(self._connection)
+        self.features: FeatureRepository = SQLiteFeatureRepository(self._connection)
         self.configuration: ConfigurationRepository = SQLiteConfigurationRepository(self._connection)
 
     def __enter__(self):

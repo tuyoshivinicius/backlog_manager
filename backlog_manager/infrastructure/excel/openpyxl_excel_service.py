@@ -292,12 +292,31 @@ class OpenpyxlExcelService(ExcelService):
                     except (ValueError, TypeError):
                         priority_value = 0
 
+                # NOVO: Extrair Feature e Onda
+                feature_value = self._extract_value(row, column_map, "feature")
+                onda_value = self._extract_value(row, column_map, "onda")
+
+                # Processar feature_name
+                feature_name = None
+                if feature_value and str(feature_value).strip():
+                    feature_name = str(feature_value).strip()
+
+                # Processar wave
+                wave = None
+                if onda_value is not None:
+                    try:
+                        wave = int(onda_value)
+                        if wave <= 0:
+                            wave = None
+                    except (ValueError, TypeError):
+                        wave = None
+
                 # Criar DTO temporário (dependências serão processadas depois)
                 story_dto = StoryDTO(
                     id=story_id,
                     component=str(component).strip(),
                     name=str(name).strip(),
-                    feature_id="feature_default",  # Usa feature padrão se não especificada
+                    feature_id=None,  # Será preenchido pelo UseCase (None = sem feature)
                     status=status_str,
                     priority=priority_value,
                     developer_id=developer_id,
@@ -306,6 +325,8 @@ class OpenpyxlExcelService(ExcelService):
                     start_date=None,
                     end_date=None,
                     duration=None,
+                    feature_name=feature_name,  # NOVO
+                    wave=wave,  # NOVO
                 )
 
                 temp_stories.append((story_id, story_dto, row_num, deps_value))

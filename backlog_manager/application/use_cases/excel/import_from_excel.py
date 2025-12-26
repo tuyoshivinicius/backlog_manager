@@ -1,13 +1,18 @@
 """Caso de uso para importar backlog de Excel."""
 import logging
-from typing import Set
+import uuid
+from typing import Dict, Optional, Set
 
 from backlog_manager.application.dto.backlog_dto import BacklogDTO
 from backlog_manager.application.dto.converters import story_to_dto, dto_to_story
 from backlog_manager.application.dto.story_dto import StoryDTO
 from backlog_manager.application.interfaces.repositories.story_repository import StoryRepository
+from backlog_manager.application.interfaces.repositories.feature_repository import FeatureRepository
+from backlog_manager.application.interfaces.repositories.developer_repository import DeveloperRepository
 from backlog_manager.application.interfaces.services.excel_service import ExcelService
 from backlog_manager.domain.entities.story import Story
+from backlog_manager.domain.entities.feature import Feature
+from backlog_manager.domain.entities.developer import Developer
 from backlog_manager.domain.services.cycle_detector import CycleDetector
 from backlog_manager.domain.value_objects.story_point import StoryPoint
 from backlog_manager.domain.value_objects.story_status import StoryStatus
@@ -32,7 +37,9 @@ class ImportFromExcelUseCase:
         self,
         story_repository: StoryRepository,
         excel_service: ExcelService,
-        cycle_detector: "CycleDetector | None" = None
+        cycle_detector: "CycleDetector | None" = None,
+        feature_repository: "FeatureRepository | None" = None,
+        developer_repository: "DeveloperRepository | None" = None,
     ):
         """
         Inicializa caso de uso.
@@ -41,10 +48,147 @@ class ImportFromExcelUseCase:
             story_repository: Repositório de histórias
             excel_service: Serviço de Excel (adaptor)
             cycle_detector: Detector de ciclos (opcional, criado automaticamente se None)
+            feature_repository: Repositório de features (para upsert)
+            developer_repository: Repositório de desenvolvedores (para upsert)
         """
         self._story_repository = story_repository
         self._excel_service = excel_service
         self._cycle_detector = cycle_detector or CycleDetector()
+        self._feature_repository = feature_repository
+        self._developer_repository = developer_repository
+        # Cache para evitar queries repetidas durante importação
+        self._feature_cache: Dict[str, str] = {}  # "nome:onda" -> feature_id
+        self._developer_cache: Dict[str, str] = {}  # nome -> developer_id
+
+    def _upsert_feature(self, feature_name: str, wave: int) -> str:
+        """
+        Cria ou encontra feature e retorna seu ID.
+
+        Estratégia:
+        1. Buscar feature por nome (case-insensitive)
+        2. Se existe -> retornar ID (ignorando onda da planilha, pois onda é UNIQUE)
+        3. Se não existe -> verificar se onda está disponível
+           - Se disponível: criar nova feature
+           - Se não disponível: encontrar próxima onda e criar
+
+        Args:
+            feature_name: Nome da feature
+            wave: Número da onda desejada
+
+        Returns:
+            ID da feature (existente ou nova)
+        """
+        if self._feature_repository is None:
+            return "feature_default"
+
+        # Verificar cache primeiro (por nome apenas, já que onda pode variar)
+        cache_key = feature_name.lower()
+        if cache_key in self._feature_cache:
+            return self._feature_cache[cache_key]
+
+        # Buscar todas as features
+        all_features = self._feature_repository.find_all()
+
+        # Procurar por nome (case-insensitive)
+        existing = None
+        for f in all_features:
+            if f.name.lower() == feature_name.lower():
+                existing = f
+                break
+
+        if existing:
+            # Feature já existe - usar ID existente (onda é propriedade da feature, não da planilha)
+            if existing.wave != wave:
+                logger.debug(
+                    f"Feature '{feature_name}' já existe com onda {existing.wave} "
+                    f"(planilha indica onda {wave}, ignorando)"
+                )
+            self._feature_cache[cache_key] = existing.id
+            return existing.id
+        else:
+            # Feature não existe - verificar se onda está disponível
+            used_waves = {f.wave for f in all_features}
+
+            if wave in used_waves:
+                # Onda já em uso por outra feature - encontrar próxima disponível
+                new_wave = wave
+                while new_wave in used_waves:
+                    new_wave += 1
+                logger.warning(
+                    f"Onda {wave} já em uso. Feature '{feature_name}' criada com onda {new_wave}"
+                )
+                wave = new_wave
+
+            # Criar nova feature
+            new_id = self._generate_feature_id(feature_name)
+            new_feature = Feature(id=new_id, name=feature_name, wave=wave)
+            self._feature_repository.save(new_feature)
+            logger.info(f"Feature '{feature_name}' criada com onda {wave}")
+            self._feature_cache[cache_key] = new_id
+            return new_id
+
+    def _generate_feature_id(self, name: str) -> str:
+        """
+        Gera ID único para feature baseado no nome.
+
+        Args:
+            name: Nome da feature
+
+        Returns:
+            ID único para a feature
+        """
+        if self._feature_repository is None:
+            return f"feat_{uuid.uuid4().hex[:8]}"
+
+        # Usar primeiras 3 letras + contador se necessário
+        base = name[:3].upper()
+        if not self._feature_repository.exists(base):
+            return base
+
+        counter = 1
+        while self._feature_repository.exists(f"{base}{counter}"):
+            counter += 1
+        return f"{base}{counter}"
+
+    def _upsert_developer(self, developer_name: str) -> str:
+        """
+        Cria ou encontra desenvolvedor e retorna seu ID.
+
+        Estratégia:
+        1. Buscar desenvolvedor por nome (case-insensitive)
+        2. Se existe -> retornar ID
+        3. Se não existe -> criar novo e retornar ID
+
+        Args:
+            developer_name: Nome do desenvolvedor
+
+        Returns:
+            ID do desenvolvedor (existente ou novo)
+        """
+        if self._developer_repository is None:
+            return developer_name  # Fallback: usar nome como ID
+
+        # Verificar cache primeiro
+        cache_key = developer_name.lower()
+        if cache_key in self._developer_cache:
+            return self._developer_cache[cache_key]
+
+        # Buscar todos os desenvolvedores
+        all_developers = self._developer_repository.find_all()
+
+        # Procurar por nome (case-insensitive)
+        for dev in all_developers:
+            if dev.name.lower() == developer_name.lower():
+                self._developer_cache[cache_key] = dev.id
+                return dev.id
+
+        # Criar novo desenvolvedor (usar nome como ID para simplicidade)
+        new_id = developer_name
+        new_developer = Developer(id=new_id, name=developer_name)
+        self._developer_repository.save(new_developer)
+        logger.info(f"Desenvolvedor '{developer_name}' criado")
+        self._developer_cache[cache_key] = new_id
+        return new_id
 
     def _merge_stories(
         self,
@@ -80,6 +224,11 @@ class ImportFromExcelUseCase:
         if "status" in columns_present:
             status = StoryStatus.from_string(imported.status)
 
+        # Determinar feature_id baseado na presença de colunas Feature/Onda
+        feature_id = existing.feature_id
+        if "feature" in columns_present and imported.feature_id:
+            feature_id = imported.feature_id
+
         # Atualizar apenas campos presentes na planilha (exceto calculados)
         return Story(
             id=existing.id,
@@ -90,6 +239,7 @@ class ImportFromExcelUseCase:
             priority=imported.priority if "prioridade" in columns_present else existing.priority,
             developer_id=imported.developer_id if "desenvolvedor" in columns_present else existing.developer_id,
             dependencies=imported.dependencies if "deps" in columns_present else existing.dependencies,
+            feature_id=feature_id,
             # Campos calculados SEMPRE preservados
             start_date=existing.start_date,
             end_date=existing.end_date,
@@ -113,6 +263,10 @@ class ImportFromExcelUseCase:
         """
         logger.info(f"Iniciando importação de Excel: file='{file_path}', clear_existing={clear_existing}")
 
+        # Limpar cache no início da importação
+        self._feature_cache.clear()
+        self._developer_cache.clear()
+
         # 1. Limpar backlog se solicitado
         if clear_existing:
             all_stories = self._story_repository.find_all()
@@ -133,15 +287,36 @@ class ImportFromExcelUseCase:
         )
         logger.info(f"Lidas {len(imported_stories_dto)} histórias do Excel")
 
-        # Adicionar estatísticas de UPDATE/INSERT
+        # Adicionar estatísticas de UPDATE/INSERT e upsert
         stats["historias_criadas"] = 0
         stats["historias_atualizadas"] = 0
+        stats["features_criadas"] = 0
+        stats["features_atualizadas"] = 0
+        stats["developers_criados"] = 0
 
         # 4. Processar cada DTO importado
         processed_stories = []
 
         for dto in imported_stories_dto:
             try:
+                # NOVO: Processar Feature/Onda (upsert)
+                if dto.feature_name and dto.wave:
+                    feature_id = self._upsert_feature(dto.feature_name, dto.wave)
+                    dto.feature_id = feature_id
+                elif dto.feature_name and not dto.wave:
+                    # Feature sem onda - usar onda padrão 1
+                    feature_id = self._upsert_feature(dto.feature_name, 1)
+                    dto.feature_id = feature_id
+                    stats["warnings"].append(
+                        f"História {dto.id}: Feature '{dto.feature_name}' sem onda - usando onda 1"
+                    )
+                # Se não tem feature_name, manter feature_id como None (já definido pelo ExcelService)
+
+                # NOVO: Processar Developer (upsert)
+                if dto.developer_id:
+                    developer_name = dto.developer_id  # Na planilha é o nome, não ID
+                    dto.developer_id = self._upsert_developer(developer_name)
+
                 # Verificar se história já existe (modo UPDATE ou INSERT)
                 if dto.id in existing_stories_dict and not clear_existing:
                     # UPDATE: merge inteligente preservando campos calculados

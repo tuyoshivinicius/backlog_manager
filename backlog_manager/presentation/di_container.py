@@ -254,7 +254,9 @@ class DIContainer:
         self.import_from_excel_use_case = ImportFromExcelUseCase(
             self.story_repository,
             self.excel_service,
-            self.cycle_detector  # NOVO: passar CycleDetector
+            self.cycle_detector,
+            self.feature_repository,  # NOVO: para upsert de features
+            self.developer_repository,  # NOVO: para upsert de developers
         )
         self.export_to_excel_use_case = ExportToExcelUseCase(
             self.excel_service, self.story_repository

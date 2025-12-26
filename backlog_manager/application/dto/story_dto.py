@@ -18,7 +18,7 @@ class StoryDTO:
     name: str
     status: str
     priority: int
-    feature_id: str
+    feature_id: Optional[str]
     developer_id: Optional[str]
     dependencies: List[str]
     story_point: Optional[int]

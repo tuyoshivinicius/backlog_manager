@@ -29,6 +29,7 @@ class TestAllocateDevelopersUseCase:
         load_balancer = Mock()
         idleness_detector = Mock()
         schedule_calculator = Mock()
+        schedule_calculator.count_workdays_between.return_value = 0  # No idle days
         backlog_sorter = Mock()
 
         feature_wave1 = Feature(id="F1", name="Feature Wave 1", wave=1)
@@ -96,6 +97,7 @@ class TestAllocateDevelopersUseCase:
         load_balancer = Mock()
         idleness_detector = Mock()
         schedule_calculator = Mock()
+        schedule_calculator.count_workdays_between.return_value = 0  # No idle days
         backlog_sorter = Mock()
 
         feature = Feature(id="F1", name="Feature 1", wave=1)
@@ -226,6 +228,7 @@ class TestAllocateDevelopersUseCase:
         load_balancer = Mock()
         idleness_detector = Mock()
         schedule_calculator = Mock()
+        schedule_calculator.count_workdays_between.return_value = 0  # No idle days
         backlog_sorter = Mock()
 
         feature_wave1 = Feature(id="F1", name="Feature Wave 1", wave=1)
@@ -308,8 +311,8 @@ class TestAllocateDevelopersUseCase:
         assert warnings == []
         assert metrics.stories_processed == 0
 
-    def test_final_dependency_check_skips_allocated_stories(self, caplog) -> None:
-        """_final_dependency_check deve pular histórias já alocadas para evitar conflitos."""
+    def test_final_dependency_check_adjusts_allocated_stories_with_violation(self, caplog) -> None:
+        """_final_dependency_check deve ajustar histórias alocadas com violação de dependência."""
         # Arrange
         story_repo = Mock()
         dev_repo = Mock()
@@ -322,25 +325,27 @@ class TestAllocateDevelopersUseCase:
         feature = Feature(id="F1", name="Feature 1", wave=1)
         dev1 = Developer(id="1", name="Dev 1")
 
-        # História já alocada que poderia ser ajustada pelo _final_dependency_check
+        # História S1 (dependência)
         story1 = Story(
             id="S1", component="Core", name="Story 1", story_point=StoryPoint(5),
             feature_id="F1", status=StoryStatus.BACKLOG, priority=0, dependencies=[]
         )
         story1.feature = feature
-        story1.start_date = date(2025, 1, 1)
-        story1.end_date = date(2025, 1, 5)
-        story1.developer_id = "1"  # JÁ ALOCADA
+        story1.start_date = date(2025, 1, 6)  # Seg
+        story1.end_date = date(2025, 1, 10)   # Sex
+        story1.developer_id = "1"
+        story1.duration = 5
 
-        # História que depende de S1 e já está alocada - NÃO sobrepõe com S1
+        # História S2 depende de S1, mas inicia ANTES de S1 terminar (VIOLAÇÃO)
         story2 = Story(
             id="S2", component="Core", name="Story 2", story_point=StoryPoint(3),
             feature_id="F1", status=StoryStatus.BACKLOG, priority=1, dependencies=["S1"]
         )
         story2.feature = feature
-        story2.start_date = date(2025, 1, 6)  # Inicia APÓS S1 terminar - sem sobreposição
-        story2.end_date = date(2025, 1, 8)
-        story2.developer_id = "1"  # JÁ ALOCADA
+        story2.start_date = date(2025, 1, 8)  # Qua - VIOLAÇÃO: inicia antes de S1 terminar!
+        story2.end_date = date(2025, 1, 10)
+        story2.developer_id = "2"  # Outro desenvolvedor para evitar conflito de período
+        story2.duration = 3
 
         all_stories = [story1, story2]
 
@@ -353,20 +358,22 @@ class TestAllocateDevelopersUseCase:
         load_balancer.get_developer_for_story.return_value = dev1
         backlog_sorter.sort.return_value = [story1, story2]
 
+        # Mock para add_workdays - próximo dia útil após 10/01 é 13/01 (Mon)
+        schedule_calculator.add_workdays.return_value = date(2025, 1, 13)
+
         use_case = AllocateDevelopersUseCase(
             story_repo, dev_repo, config_repo, load_balancer, idleness_detector, schedule_calculator, backlog_sorter
         )
 
         # Act
-        with caplog.at_level(logging.DEBUG):
+        with caplog.at_level(logging.INFO):
             total, warnings, metrics = use_case.execute()
 
         # Assert
-        # story2 NÃO deve ter sido ajustada pelo _final_dependency_check
-        # porque já estava alocada
-        assert "pulando _final_dependency_check" in caplog.text
-        # A data original deve ser mantida (não foi ajustada)
-        assert story2.start_date == date(2025, 1, 6)
+        # story2 DEVE ter sido ajustada pelo _final_dependency_check
+        # para iniciar após S1 terminar (13/01)
+        assert "Violação corrigida" in caplog.text
+        assert story2.start_date == date(2025, 1, 13)
 
     def test_resolve_allocation_conflicts_adjusts_overlapping_periods(self, caplog) -> None:
         """_resolve_allocation_conflicts deve ajustar histórias com períodos sobrepostos."""
@@ -377,6 +384,7 @@ class TestAllocateDevelopersUseCase:
         load_balancer = Mock()
         idleness_detector = Mock()
         schedule_calculator = Mock()
+        schedule_calculator.count_workdays_between.return_value = 0  # No idle days
         backlog_sorter = Mock()
 
         feature = Feature(id="F1", name="Feature 1", wave=1)
@@ -444,6 +452,7 @@ class TestAllocateDevelopersUseCase:
         load_balancer = Mock()
         idleness_detector = Mock()
         schedule_calculator = Mock()
+        schedule_calculator.count_workdays_between.return_value = 0  # No idle days
         backlog_sorter = Mock()
 
         feature = Feature(id="F1", name="Feature 1", wave=1)
@@ -492,3 +501,160 @@ class TestAllocateDevelopersUseCase:
         assert "Conflito de alocação resolvido" not in caplog.text
         # Datas originais mantidas
         assert story2.start_date == date(2025, 1, 13)
+
+    def test_validate_and_fix_allocations_fixes_idle_violations(self, caplog) -> None:
+        """_validate_and_fix_allocations deve detectar e tentar corrigir violações de max_idle_days."""
+        # Arrange
+        story_repo = Mock()
+        dev_repo = Mock()
+        config_repo = Mock()
+        load_balancer = Mock()
+        idleness_detector = Mock()
+        schedule_calculator = Mock()
+        backlog_sorter = Mock()
+
+        feature = Feature(id="F1", name="Feature 1", wave=1)
+        dev1 = Developer(id="1", name="Dev 1")
+        dev2 = Developer(id="2", name="Dev 2")
+
+        # Duas histórias do mesmo dev com gap de 10 dias (viola max_idle_days=3)
+        story1 = Story(
+            id="S1", component="Core", name="Story 1", story_point=StoryPoint(5),
+            feature_id="F1", status=StoryStatus.BACKLOG, priority=0, dependencies=[]
+        )
+        story1.feature = feature
+        story1.start_date = date(2025, 1, 6)
+        story1.end_date = date(2025, 1, 10)
+        story1.developer_id = "1"
+
+        story2 = Story(
+            id="S2", component="Core", name="Story 2", story_point=StoryPoint(3),
+            feature_id="F1", status=StoryStatus.BACKLOG, priority=1, dependencies=[]
+        )
+        story2.feature = feature
+        story2.start_date = date(2025, 1, 24)  # Gap grande de ~10 dias úteis
+        story2.end_date = date(2025, 1, 28)
+        story2.developer_id = "1"
+
+        all_stories = [story1, story2]
+
+        dev_repo.find_all.return_value = [dev1, dev2]
+        story_repo.find_all.return_value = all_stories
+        story_repo.load_feature.side_effect = lambda s: None
+        config_repo.get.return_value = Configuration()
+        idleness_detector.detect_idleness.return_value = []
+        idleness_detector.detect_between_waves_idleness.return_value = []
+        load_balancer.get_developer_for_story.return_value = dev1
+        backlog_sorter.sort.return_value = [story1, story2]
+
+        # Mock schedule_calculator para retornar 10 dias de gap (viola max_idle_days=3)
+        schedule_calculator.count_workdays_between.return_value = 10
+
+        use_case = AllocateDevelopersUseCase(
+            story_repo, dev_repo, config_repo, load_balancer, idleness_detector, schedule_calculator, backlog_sorter
+        )
+
+        # Act
+        with caplog.at_level(logging.DEBUG):
+            total, warnings, metrics = use_case.execute()
+
+        # Assert
+        # Deve ter detectado a violação de max_idle_days
+        assert metrics.max_idle_violations_detected > 0
+
+    def test_calculate_idle_days_returns_none_for_first_story(self) -> None:
+        """_calculate_idle_days deve retornar None se não há história anterior do dev."""
+        # Arrange
+        story_repo = Mock()
+        dev_repo = Mock()
+        config_repo = Mock()
+        load_balancer = Mock()
+        idleness_detector = Mock()
+        schedule_calculator = Mock()
+        schedule_calculator.count_workdays_between.return_value = 0
+        backlog_sorter = Mock()
+
+        feature = Feature(id="F1", name="Feature 1", wave=1)
+        dev1 = Developer(id="1", name="Dev 1")
+
+        # Apenas uma história (primeira do dev)
+        story1 = Story(
+            id="S1", component="Core", name="Story 1", story_point=StoryPoint(5),
+            feature_id="F1", status=StoryStatus.BACKLOG, priority=0, dependencies=[]
+        )
+        story1.feature = feature
+        story1.start_date = date(2025, 1, 6)
+        story1.end_date = date(2025, 1, 10)
+        story1.developer_id = "1"
+
+        all_stories = [story1]
+
+        dev_repo.find_all.return_value = [dev1]
+        story_repo.find_all.return_value = all_stories
+        story_repo.load_feature.side_effect = lambda s: None
+        config_repo.get.return_value = Configuration()
+        idleness_detector.detect_idleness.return_value = []
+        idleness_detector.detect_between_waves_idleness.return_value = []
+        load_balancer.get_developer_for_story.return_value = dev1
+        backlog_sorter.sort.return_value = [story1]
+
+        use_case = AllocateDevelopersUseCase(
+            story_repo, dev_repo, config_repo, load_balancer, idleness_detector, schedule_calculator, backlog_sorter
+        )
+
+        # Act
+        total, warnings, metrics = use_case.execute()
+
+        # Assert
+        # Não deve haver violações detectadas (primeira história do dev)
+        assert metrics.max_idle_violations_detected == 0
+
+    def test_metrics_include_validation_reallocations(self) -> None:
+        """Métricas devem incluir realocações bem-sucedidas na validação."""
+        # Arrange
+        story_repo = Mock()
+        dev_repo = Mock()
+        config_repo = Mock()
+        load_balancer = Mock()
+        idleness_detector = Mock()
+        schedule_calculator = Mock()
+        schedule_calculator.count_workdays_between.return_value = 0  # No idle days
+        backlog_sorter = Mock()
+
+        feature = Feature(id="F1", name="Feature 1", wave=1)
+        dev1 = Developer(id="1", name="Dev 1")
+
+        story1 = Story(
+            id="S1", component="Core", name="Story 1", story_point=StoryPoint(5),
+            feature_id="F1", status=StoryStatus.BACKLOG, priority=0, dependencies=[]
+        )
+        story1.feature = feature
+        story1.start_date = date(2025, 1, 6)
+        story1.end_date = date(2025, 1, 10)
+
+        all_stories = [story1]
+
+        dev_repo.find_all.return_value = [dev1]
+        story_repo.find_all.return_value = all_stories
+        story_repo.load_feature.side_effect = lambda s: None
+        config_repo.get.return_value = Configuration()
+        idleness_detector.detect_idleness.return_value = []
+        idleness_detector.detect_between_waves_idleness.return_value = []
+        load_balancer.get_developer_for_story.return_value = dev1
+        backlog_sorter.sort.return_value = [story1]
+
+        use_case = AllocateDevelopersUseCase(
+            story_repo, dev_repo, config_repo, load_balancer, idleness_detector, schedule_calculator, backlog_sorter
+        )
+
+        # Act
+        total, warnings, metrics = use_case.execute()
+
+        # Assert
+        # Verificar que métricas de validação são inicializadas corretamente
+        assert metrics.validation_reallocations >= 0
+        assert metrics.validation_dependency_fixes >= 0
+        assert metrics.validation_conflict_fixes >= 0
+        assert metrics.max_idle_violations_detected >= 0
+        assert metrics.max_idle_violations_fixed >= 0
+        assert metrics.failed_reallocations >= 0

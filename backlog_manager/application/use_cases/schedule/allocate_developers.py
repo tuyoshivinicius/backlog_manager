@@ -30,6 +30,10 @@ logger = logging.getLogger(__name__)
 # Constante configurável para limite de iterações
 DEFAULT_MAX_ITERATIONS = 1000
 
+# Limites de segurança para realocações na fase de validação
+MAX_REALLOCATIONS_PER_STORY = 3  # Evita ping-pong entre desenvolvedores
+MAX_STABILIZATION_PASSES = 10  # Limite de passadas no loop de estabilização
+
 
 @dataclass
 class AllocationMetrics:
@@ -46,6 +50,14 @@ class AllocationMetrics:
     deadlocks_detected: int = 0
     date_adjustments: int = 0
 
+    # Métricas da fase de validação final
+    validation_reallocations: int = 0  # Realocações bem-sucedidas
+    validation_dependency_fixes: int = 0  # Violações de dependência corrigidas
+    validation_conflict_fixes: int = 0  # Conflitos de período resolvidos
+    max_idle_violations_detected: int = 0  # Violações de max_idle_days detectadas
+    max_idle_violations_fixed: int = 0  # Violações corrigidas por realocação
+    failed_reallocations: int = 0  # Tentativas de realocação que falharam
+
     def __str__(self) -> str:
         """Retorna representação legível das métricas."""
         return (
@@ -57,7 +69,9 @@ class AllocationMetrics:
             f"by_dep_owner={self.allocations_by_dependency_owner}, "
             f"by_load_bal={self.allocations_by_load_balancing}, "
             f"deadlocks={self.deadlocks_detected}, "
-            f"adjustments={self.date_adjustments})"
+            f"adjustments={self.date_adjustments}, "
+            f"validation_reallocs={self.validation_reallocations}, "
+            f"idle_violations={self.max_idle_violations_detected})"
         )
 
 
@@ -258,21 +272,29 @@ class AllocateDevelopersUseCase:
 
             logger.info(f"Onda {wave} concluída: {allocated} histórias alocadas")
 
-        # 5. VALIDAÇÃO FINAL: Re-verificar e ajustar dependências (usa cache em memória)
-        logger.info("Validação final: verificando dependências")
-        violations_fixed = self._final_dependency_check(all_stories, config)
-        if violations_fixed > 0:
-            logger.info(f"Validação final: {violations_fixed} histórias ajustadas para respeitar dependências")
+        # 5. VALIDAÇÃO FINAL UNIFICADA
+        # Usa método unificado que:
+        # - Corrige violações de dependência
+        # - Resolve conflitos de período
+        # - Verifica e corrige violações de max_idle_days (tentando realocar)
+        # Loop de estabilização até não haver mais ajustes
+        total_violations_fixed, total_conflicts_resolved, total_idle_fixed = (
+            self._validate_and_fix_allocations(all_stories, developers, config)
+        )
 
-        # 5.5 RESOLVER CONFLITOS DE ALOCAÇÃO (proteção adicional)
-        # Detecta e resolve histórias do mesmo desenvolvedor com períodos sobrepostos.
-        # Esta é uma camada defensiva que garante consistência mesmo se algum bug
-        # anterior criar conflitos.
-        logger.info("Validação final: resolvendo conflitos de alocação")
-        conflicts_resolved = self._resolve_allocation_conflicts(all_stories, developers)
-        if conflicts_resolved > 0:
+        if total_violations_fixed > 0:
+            logger.info(
+                f"Validação final: {total_violations_fixed} violações de dependência corrigidas"
+            )
+
+        if total_conflicts_resolved > 0:
             logger.warning(
-                f"Validação final: {conflicts_resolved} conflitos de alocação resolvidos"
+                f"Validação final: {total_conflicts_resolved} conflitos de alocação resolvidos"
+            )
+
+        if total_idle_fixed > 0:
+            logger.info(
+                f"Validação final: {total_idle_fixed} violações de ociosidade corrigidas"
             )
 
         # 6. ATUALIZAR schedule_order baseado na ordem final (antes de salvar)
@@ -825,10 +847,13 @@ class AllocateDevelopersUseCase:
         Processa histórias em ordem topológica para garantir que dependências sejam
         ajustadas antes de seus dependentes.
 
-        IMPORTANTE: Histórias já alocadas são PULADAS para evitar criar conflitos
-        de período com outras histórias do mesmo desenvolvedor. Ajustar datas de
-        histórias alocadas pode mover a história para um período onde o desenvolvedor
-        já está ocupado.
+        IMPORTANTE: Histórias alocadas TAMBÉM são processadas. Se o ajuste de datas
+        criar conflitos de período, o método _resolve_allocation_conflicts (que é
+        executado após este) irá resolver os conflitos empurrando histórias para
+        slots disponíveis.
+
+        A prioridade é: dependências > conflitos de período. É mais importante
+        respeitar dependências (requisito de negócio) do que manter o slot original.
 
         Args:
             all_stories: Lista de todas as histórias
@@ -843,15 +868,6 @@ class AllocateDevelopersUseCase:
         violations_fixed = 0
 
         for story in sorted_stories:
-            # IMPORTANTE: Pular histórias já alocadas para evitar criar conflitos
-            # de período. Se uma história alocada tiver sua data ajustada, ela pode
-            # passar a sobrepor com outra história do mesmo desenvolvedor.
-            if story.developer_id is not None:
-                logger.debug(
-                    f"História {story.id}: pulando _final_dependency_check (já alocada para dev {story.developer_id})"
-                )
-                continue
-
             if not story.start_date or not story.dependencies:
                 continue
 
@@ -881,6 +897,339 @@ class AllocateDevelopersUseCase:
                 )
 
         return violations_fixed
+
+    def _calculate_idle_days_for_story(
+        self,
+        story: Story,
+        all_stories: List[Story],
+    ) -> Optional[int]:
+        """
+        Calcula quantos dias ociosos existem entre a última história do desenvolvedor e esta.
+
+        Busca a história mais recente (por end_date) do desenvolvedor alocado para esta
+        história que termina ANTES desta história começar.
+
+        Args:
+            story: História para calcular ociosidade
+            all_stories: Lista de todas as histórias
+
+        Returns:
+            Número de dias úteis ociosos, ou None se:
+            - História não tem desenvolvedor
+            - História não tem start_date
+            - Não há histórias anteriores do desenvolvedor
+        """
+        if story.developer_id is None or story.start_date is None:
+            return None
+
+        # Buscar histórias do desenvolvedor que terminam antes desta história começar
+        dev_previous_stories = [
+            s for s in all_stories
+            if s.developer_id == story.developer_id
+            and s.id != story.id
+            and s.end_date is not None
+            and s.end_date < story.start_date
+        ]
+
+        if not dev_previous_stories:
+            return None
+
+        # Encontrar a história mais recente
+        last_story = max(dev_previous_stories, key=lambda s: s.end_date)  # type: ignore
+
+        # Calcular dias úteis entre fim da última história e início desta
+        # count_workdays_between retorna dias ENTRE as datas (exclusivo)
+        idle_days = self._schedule_calculator.count_workdays_between(
+            last_story.end_date, story.start_date  # type: ignore
+        )
+
+        return idle_days
+
+    def _check_max_idle_violation(
+        self,
+        story: Story,
+        all_stories: List[Story],
+    ) -> Optional[int]:
+        """
+        Verifica se a alocação da história viola o limite max_idle_days.
+
+        Args:
+            story: História para verificar
+            all_stories: Lista de todas as histórias
+
+        Returns:
+            Número de dias ociosos se viola max_idle_days, None se está OK
+        """
+        # Se max_idle_days não está configurado, não há violação
+        if self._max_idle_days is None:
+            return None
+
+        idle_days = self._calculate_idle_days_for_story(story, all_stories)
+
+        if idle_days is None:
+            return None
+
+        # Verificar se viola o limite
+        if idle_days > self._max_idle_days:
+            return idle_days
+
+        return None
+
+    def _try_reallocate_with_rules(
+        self,
+        story: Story,
+        all_stories: List[Story],
+        developers: List[Developer],
+        reason: str,
+        reallocation_counts: Dict[str, int],
+    ) -> bool:
+        """
+        Tenta realocar história para outro desenvolvedor respeitando TODAS as regras.
+
+        Este método usa o DeveloperLoadBalancer para selecionar o melhor desenvolvedor,
+        considerando:
+        - Critério de alocação (LOAD_BALANCING ou DEPENDENCY_OWNER)
+        - Limite de ociosidade (max_idle_days)
+        - Disponibilidade no período
+
+        Args:
+            story: História a realocar
+            all_stories: Lista de todas as histórias
+            developers: Lista de desenvolvedores
+            reason: Motivo da realocação (para logging)
+            reallocation_counts: Dicionário de contagem de realocações por história
+
+        Returns:
+            True se realocou com sucesso, False se manteve alocação original
+        """
+        # Validações básicas
+        if (
+            story.developer_id is None
+            or story.start_date is None
+            or story.end_date is None
+        ):
+            return False
+
+        # Verificar limite de realocações por história
+        current_count = reallocation_counts.get(story.id, 0)
+        if current_count >= MAX_REALLOCATIONS_PER_STORY:
+            logger.warning(
+                f"História {story.id}: limite de realocações atingido ({MAX_REALLOCATIONS_PER_STORY})"
+            )
+            self._metrics.failed_reallocations += 1
+            return False
+
+        # Buscar desenvolvedores disponíveis no período da história
+        available_devs = self._get_available_developers(
+            story.start_date,
+            story.end_date,
+            all_stories,
+            developers,
+        )
+
+        # Remover o desenvolvedor atual da lista (ele tem o problema)
+        available_devs = [d for d in available_devs if d.id != story.developer_id]
+
+        if not available_devs:
+            logger.debug(
+                f"História {story.id}: nenhum dev alternativo disponível para realocação"
+            )
+            self._metrics.failed_reallocations += 1
+            return False
+
+        # Usar load balancer para selecionar o melhor desenvolvedor
+        # Isso respeita o critério de alocação e max_idle_days
+        selected_dev = self._load_balancer.get_developer_for_story(
+            story,
+            self._story_map,
+            available_devs,
+            all_stories,
+            allocation_criteria=self._allocation_criteria,
+            new_story_start_date=story.start_date,
+            max_idle_days=self._max_idle_days,
+            current_wave=story.wave,
+        )
+
+        if selected_dev is None:
+            # Fallback: se load balancer não retornou, usar primeiro disponível
+            selected_dev = available_devs[0]
+
+        # Verificar se a realocação criaria violação de max_idle_days
+        # Simular a alocação para verificar
+        old_dev_id = story.developer_id
+        story.developer_id = selected_dev.id
+
+        new_violation = self._check_max_idle_violation(story, all_stories)
+        if new_violation is not None:
+            # A realocação criaria uma violação - reverter
+            story.developer_id = old_dev_id
+            logger.debug(
+                f"História {story.id}: realocação para {selected_dev.name} "
+                f"criaria violação de {new_violation} dias"
+            )
+            self._metrics.failed_reallocations += 1
+            return False
+
+        # Realocação bem-sucedida!
+        self._modified_stories.add(story.id)
+        reallocation_counts[story.id] = current_count + 1
+        self._metrics.validation_reallocations += 1
+
+        logger.info(
+            f"História {story.id}: realocada de dev {old_dev_id} para {selected_dev.name} "
+            f"({reason})"
+        )
+
+        return True
+
+    def _validate_and_fix_allocations(
+        self,
+        all_stories: List[Story],
+        developers: List[Developer],
+        config: Configuration,
+    ) -> Tuple[int, int, int]:
+        """
+        Método unificado de validação e correção de alocações.
+
+        Executa um loop de estabilização que:
+        1. Corrige violações de dependência
+        2. Resolve conflitos de período (sobreposição)
+        3. Verifica e tenta corrigir violações de max_idle_days
+
+        O loop continua até não haver mais ajustes necessários ou atingir
+        o limite de passadas.
+
+        Esta abordagem unificada garante que todas as regras são verificadas
+        e respeitadas após a fase principal de alocação.
+
+        Args:
+            all_stories: Lista de todas as histórias
+            developers: Lista de desenvolvedores
+            config: Configuração do sistema
+
+        Returns:
+            Tupla (violações_dependência_corrigidas, conflitos_resolvidos, violações_idle_corrigidas)
+        """
+        total_violations_fixed = 0
+        total_conflicts_resolved = 0
+        total_idle_fixed = 0
+
+        # Dicionário para rastrear realocações por história
+        reallocation_counts: Dict[str, int] = {}
+
+        for pass_num in range(MAX_STABILIZATION_PASSES):
+            pass_had_changes = False
+
+            # ETAPA 1: Verificar e ajustar dependências
+            violations_fixed = self._final_dependency_check(all_stories, config)
+            if violations_fixed > 0:
+                total_violations_fixed += violations_fixed
+                self._metrics.validation_dependency_fixes += violations_fixed
+                pass_had_changes = True
+                logger.debug(f"Passada {pass_num + 1}: {violations_fixed} violações de dependência")
+
+            # ETAPA 2: Resolver conflitos de alocação (sobreposições)
+            conflicts_resolved = self._resolve_allocation_conflicts(all_stories, developers)
+            if conflicts_resolved > 0:
+                total_conflicts_resolved += conflicts_resolved
+                self._metrics.validation_conflict_fixes += conflicts_resolved
+                pass_had_changes = True
+                logger.debug(f"Passada {pass_num + 1}: {conflicts_resolved} conflitos de período")
+
+            # ETAPA 3: Verificar violações de max_idle_days e tentar realocar
+            idle_fixes = self._check_and_fix_idle_violations(
+                all_stories, developers, reallocation_counts
+            )
+            if idle_fixes > 0:
+                total_idle_fixed += idle_fixes
+                pass_had_changes = True
+                logger.debug(f"Passada {pass_num + 1}: {idle_fixes} violações de ociosidade corrigidas")
+
+            # Se não houve mudanças, estabilizou
+            if not pass_had_changes:
+                logger.info(
+                    f"Validação unificada estabilizada em {pass_num + 1} passada(s). "
+                    f"Dep: {total_violations_fixed}, Conflitos: {total_conflicts_resolved}, "
+                    f"Ociosidade: {total_idle_fixed}"
+                )
+                break
+
+        else:
+            # Atingiu limite de passadas
+            logger.warning(
+                f"Validação unificada atingiu limite de {MAX_STABILIZATION_PASSES} passadas. "
+                f"Dep: {total_violations_fixed}, Conflitos: {total_conflicts_resolved}, "
+                f"Ociosidade: {total_idle_fixed}"
+            )
+
+        return total_violations_fixed, total_conflicts_resolved, total_idle_fixed
+
+    def _check_and_fix_idle_violations(
+        self,
+        all_stories: List[Story],
+        developers: List[Developer],
+        reallocation_counts: Dict[str, int],
+    ) -> int:
+        """
+        Verifica todas as histórias alocadas para violações de max_idle_days.
+
+        Para cada violação encontrada, tenta realocar a história para outro
+        desenvolvedor que não viole o limite.
+
+        Args:
+            all_stories: Lista de todas as histórias
+            developers: Lista de desenvolvedores
+            reallocation_counts: Dicionário de contagem de realocações
+
+        Returns:
+            Número de violações corrigidas por realocação
+        """
+        if self._max_idle_days is None:
+            return 0
+
+        fixes = 0
+
+        # Verificar todas as histórias alocadas
+        allocated_stories = [
+            s for s in all_stories
+            if s.developer_id is not None
+            and s.start_date is not None
+            and s.end_date is not None
+        ]
+
+        # Ordenar por data de início para processar em ordem cronológica
+        allocated_stories.sort(key=lambda s: s.start_date)  # type: ignore
+
+        for story in allocated_stories:
+            idle_days = self._check_max_idle_violation(story, all_stories)
+
+            if idle_days is not None:
+                # Violação detectada
+                self._metrics.max_idle_violations_detected += 1
+
+                logger.debug(
+                    f"História {story.id}: violação de ociosidade ({idle_days} dias > "
+                    f"{self._max_idle_days})"
+                )
+
+                # Tentar realocar para outro desenvolvedor
+                if self._try_reallocate_with_rules(
+                    story,
+                    all_stories,
+                    developers,
+                    reason=f"ociosidade excessiva ({idle_days} dias)",
+                    reallocation_counts=reallocation_counts,
+                ):
+                    fixes += 1
+                    self._metrics.max_idle_violations_fixed += 1
+                else:
+                    # Não foi possível realocar - emitir warning
+                    logger.warning(
+                        f"História {story.id}: violação de max_idle_days não pôde ser corrigida "
+                        f"({idle_days} dias > {self._max_idle_days})"
+                    )
+
+        return fixes
 
     def _resolve_allocation_conflicts(
         self,
