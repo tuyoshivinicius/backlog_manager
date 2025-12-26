@@ -309,11 +309,11 @@ class TestScheduleCalculator:
         assert result == date(2026, 1, 2)
 
     # ========================================
-    # Testes de Barreira de Onda (Wave Barrier)
+    # Testes de Ondas (Sem Barreira Temporal)
     # ========================================
 
-    def test_wave_barrier_prevents_overlap(self) -> None:
-        """Histórias de onda 2 só podem iniciar após onda 1 terminar."""
+    def test_waves_can_overlap_without_barrier(self) -> None:
+        """Histórias de ondas diferentes podem iniciar simultaneamente (sem barreira)."""
         calculator = ScheduleCalculator()
         config = Configuration()
         start_date = date(2025, 1, 6)  # Segunda-feira
@@ -329,12 +329,12 @@ class TestScheduleCalculator:
         assert result[0].start_date == date(2025, 1, 6)
         assert result[0].end_date == date(2025, 1, 9)
 
-        # Story2 (onda 2): Deve iniciar APÓS story1 terminar (sexta 10)
-        assert result[1].start_date == date(2025, 1, 10)
-        assert result[1].start_date > result[0].end_date
+        # Story2 (onda 2): Também começa Segunda (6) - SEM BARREIRA
+        assert result[1].start_date == date(2025, 1, 6)
+        assert result[1].start_date == result[0].start_date  # Podem iniciar juntas
 
-    def test_non_contiguous_waves(self) -> None:
-        """Onda 3 deve aguardar onda 1 mesmo sem onda 2."""
+    def test_non_contiguous_waves_can_overlap(self) -> None:
+        """Ondas não-contíguas podem executar em paralelo (sem barreira)."""
         calculator = ScheduleCalculator()
         config = Configuration()
         start_date = date(2025, 1, 6)  # Segunda-feira
@@ -349,9 +349,9 @@ class TestScheduleCalculator:
         # Story1 (onda 1): Segunda (6) a Quinta (9)
         assert result[0].end_date == date(2025, 1, 9)
 
-        # Story3 (onda 3): Deve iniciar após onda 1 terminar
-        assert result[1].start_date == date(2025, 1, 10)
-        assert result[1].start_date > result[0].end_date
+        # Story3 (onda 3): Também começa Segunda (6) - SEM BARREIRA
+        assert result[1].start_date == date(2025, 1, 6)
+        assert result[1].start_date == result[0].start_date
 
     def test_wave_zero_does_not_block(self) -> None:
         """Wave 0 (histórias sem feature) não bloqueia outras ondas."""
@@ -372,19 +372,19 @@ class TestScheduleCalculator:
         # Story1 (wave 1): Também começa segunda (6) - wave 0 não bloqueia
         assert result[1].start_date == date(2025, 1, 6)
 
-    def test_dependency_and_wave_barrier(self) -> None:
-        """A maior restrição (dependência ou barreira de onda) prevalece."""
+    def test_dependency_across_waves(self) -> None:
+        """Dependências entre ondas ainda são respeitadas (sem barreira de onda)."""
         calculator = ScheduleCalculator()
         config = Configuration()
         start_date = date(2025, 1, 6)  # Segunda-feira
 
-        # Onda 1: história curta (1 dia)
+        # Onda 1: história curta (3 dias)
         story1 = create_story_with_wave("S1", wave=1, story_points=3)
 
-        # Onda 2: história que também depende de S1
+        # Onda 2: história que depende de S1
         story2 = create_story_with_wave("S2", wave=2, story_points=5, dependencies=["S1"])
 
-        # Onda 2: segunda história longa (sem dependência de S1)
+        # Onda 2: segunda história SEM dependência de S1
         story3 = create_story_with_wave("S3", wave=2, story_points=8)
 
         result = calculator.calculate([story1, story2, story3], config, start_date)
@@ -392,11 +392,11 @@ class TestScheduleCalculator:
         # Story1 (onda 1): Segunda (6) a Quarta (8) - 3 dias
         assert result[0].end_date == date(2025, 1, 8)
 
-        # Story2 (onda 2): Deve iniciar após story1 (dependência e barreira coincidem)
+        # Story2 (onda 2): Deve iniciar após story1 (por causa da DEPENDÊNCIA)
         assert result[1].start_date == date(2025, 1, 9)
 
-        # Story3 (onda 2): Também deve respeitar barreira de onda
-        assert result[2].start_date == date(2025, 1, 9)
+        # Story3 (onda 2): Pode iniciar junto com story1 (SEM dependência, SEM barreira)
+        assert result[2].start_date == date(2025, 1, 6)
 
     def test_multiple_stories_same_wave(self) -> None:
         """Múltiplas histórias da mesma onda podem iniciar na mesma data."""
@@ -414,27 +414,33 @@ class TestScheduleCalculator:
         assert result[0].start_date == date(2025, 1, 6)
         assert result[1].start_date == date(2025, 1, 6)
 
-    def test_wave_end_date_uses_latest_story(self) -> None:
-        """Barreira de onda deve usar a data de fim da última história da onda anterior."""
+    def test_developer_can_start_next_wave_early(self) -> None:
+        """Desenvolvedor livre pode adiantar história da próxima onda."""
         calculator = ScheduleCalculator()
         config = Configuration()
         start_date = date(2025, 1, 6)  # Segunda-feira
 
-        # Onda 1: história curta (3 dias)
+        # Onda 1: história curta (3 dias) - Dev A
         story1 = create_story_with_wave("S1", wave=1, story_points=3)
-        # Onda 1: história longa (6 dias)
+        story1.developer_id = "dev_a"
+
+        # Onda 1: história longa (6 dias) - Dev B
         story2 = create_story_with_wave("S2", wave=1, story_points=8)
-        # Onda 2: deve esperar história mais longa da onda 1
+        story2.developer_id = "dev_b"
+
+        # Onda 2: Dev A pode adiantar! (não precisa esperar Dev B)
         story3 = create_story_with_wave("S3", wave=2, story_points=5)
+        story3.developer_id = "dev_a"
 
         result = calculator.calculate([story1, story2, story3], config, start_date)
 
-        # Story1 (onda 1): Segunda (6) a Quarta (8) - 3 dias
+        # Story1 (onda 1, Dev A): Segunda (6) a Quarta (8) - 3 dias
         assert result[0].end_date == date(2025, 1, 8)
 
-        # Story2 (onda 1): Segunda (6) a Segunda (13) - 6 dias
+        # Story2 (onda 1, Dev B): Segunda (6) a Segunda (13) - 6 dias
         assert result[1].end_date == date(2025, 1, 13)
 
-        # Story3 (onda 2): Deve iniciar após story2 (a mais longa da onda 1)
-        assert result[2].start_date == date(2025, 1, 14)
-        assert result[2].start_date > result[1].end_date
+        # Story3 (onda 2, Dev A): Deve iniciar Quinta (9) - logo após Dev A terminar story1
+        # NÃO precisa esperar story2 (Dev B) terminar!
+        assert result[2].start_date == date(2025, 1, 9)
+        assert result[2].start_date < result[1].end_date  # Dev A adiantou!

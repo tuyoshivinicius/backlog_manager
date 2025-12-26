@@ -71,9 +71,6 @@ class ScheduleCalculator:
         # Rastrear última data de fim por desenvolvedor
         dev_last_end_date: dict[str, date] = {}
 
-        # Rastrear última data de fim por onda (wave barrier)
-        wave_last_end_date: dict[int, date] = {}
-
         # Mapear histórias por ID para consulta rápida
         story_map: dict[str, Story] = {s.id: s for s in stories}
 
@@ -88,17 +85,9 @@ class ScheduleCalculator:
 
             earliest_start = start_date
 
-            # Verificar barreira de onda (wave barrier)
-            # Histórias de onda N só podem iniciar após todas as histórias
-            # de ondas anteriores (1 a N-1) terminarem. Wave 0 não bloqueia.
-            current_wave = story.wave
-            if current_wave > 0:
-                # Buscar ondas anteriores (excluindo wave 0)
-                prev_waves = [w for w in wave_last_end_date.keys() if 0 < w < current_wave]
-                if prev_waves:
-                    prev_wave = max(prev_waves)
-                    wave_barrier = self._next_workday(wave_last_end_date[prev_wave])
-                    earliest_start = max(earliest_start, wave_barrier)
+            # NOTA: Barreira de onda removida - desenvolvedores livres podem
+            # adiantar histórias da próxima onda sem esperar a anterior terminar.
+            # Ondas são apenas agrupamentos lógicos, sem impacto no schedule.
 
             # Verificar última história do desenvolvedor
             if story.developer_id and story.developer_id in dev_last_end_date:
@@ -130,10 +119,6 @@ class ScheduleCalculator:
             # Atualizar última data de fim do desenvolvedor
             if story.developer_id:
                 dev_last_end_date[story.developer_id] = story.end_date
-
-            # Atualizar última data de fim da onda
-            if current_wave not in wave_last_end_date or story.end_date > wave_last_end_date[current_wave]:
-                wave_last_end_date[current_wave] = story.end_date
 
         return stories
 
